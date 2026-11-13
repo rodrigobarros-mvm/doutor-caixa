@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, request, send_file, redirect, url_for
 import io
 import math
 from fpdf import FPDF
@@ -11,6 +11,19 @@ SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def parse_brl(valor_str):
+    if not valor_str:
+        return 0.0
+    limpo = str(valor_str).replace("R$", "").strip()
+    if "," in limpo:
+        limpo = limpo.replace(".", "").replace(",", ".")
+    else:
+        partes = limpo.split(".")
+        if len(partes) > 1 and len(partes[-1]) == 3:
+            limpo = limpo.replace(".", "")
+    filtrado = "".join(c for c in limpo if c.isdigit() or c == ".")
+    return float(filtrado) if filtrado else 0.0
 
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
@@ -27,17 +40,38 @@ def buscar_cliente_db(cnpj_bruto):
                 "caixa": float(row["caixa"]),
                 "fat": float(row["fat"]),
                 "fixo": float(row["fixo"]),
-                "margem": float(row["margem"])
+                "margem": float(row["margem"]),
+                "modelo": row.get("modelo", "produtos"),
+                "meta_fat": float(row.get("meta_fat", row["fat"] * 1.3))
             }
     except Exception as e:
         print(f"Aviso: Nuvem indisponível ({e}). Usando base de contingência local...")
     
     # 2. Fallback de segurança
     BASE_LOCAL_SEGURANCA = {
-        "11222333000181": {"nome": "Comércio Exemplo RMR Ltda", "ativo": True, "caixa": 120000.00, "fat": 300000.00, "fixo": 95000.00, "margem": 38.0},
-        "44555666000199": {"nome": "Inadimplente Teste S/A", "ativo": False, "caixa": 50000.00, "fat": 100000.00, "fixo": 40000.00, "margem": 30.0}
+        "11222333000181": {"nome": "Comércio Exemplo RMR Ltda", "ativo": True, "caixa": 120000.00, "fat": 300000.00, "fixo": 95000.00, "margem": 38.0, "modelo": "produtos", "meta_fat": 400000.00},
+        "44555666000199": {"nome": "Inadimplente Teste S/A", "ativo": False, "caixa": 50000.00, "fat": 100000.00, "fixo": 40000.00, "margem": 30.0, "modelo": "servicos", "meta_fat": 150000.00}
     }
     return BASE_LOCAL_SEGURANCA.get(cnpj_limpo, None)
+
+def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat):
+    registro = {
+        "cnpj": cnpj_limpo,
+        "nome": nome.strip(),
+        "ativo": True,
+        "caixa": caixa,
+        "fat": fat,
+        "fixo": fixo,
+        "margem": margem,
+        "modelo": modelo,
+        "meta_fat": meta_fat
+    }
+    try:
+        supabase.table("clientes_doutor_caixa").upsert(registro).execute()
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar no Supabase: {e}")
+        return False
 
 def format_brl(value):
     return "{:,.2f}".format(value).replace(",", "X").replace(".", ",").replace("X", ".")
@@ -52,6 +86,360 @@ app.jinja_env.filters['format_brl'] = format_brl
 app.jinja_env.filters['format_cnpj'] = format_cnpj
 
 # --- TEMPLATES HTML ---
+TEMPLATE_HOME = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doutor Caixa | Inteligência Financeira B2B</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #E8F7EE;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 16px;
+            color: #0F2E1C;
+        }
+        .login-box {
+            background: #FFFFFF;
+            padding: 36px 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08);
+            text-align: center;
+            max-width: 440px;
+            width: 100%;
+        }
+        .logo { max-width: 135px; margin-bottom: 14px; }
+        h1 { color: #0F2E1C; margin: 0 0 8px 0; font-size: 22px; font-weight: 700; line-height: 1.25; }
+        .subtitle { color: #6B7A70; font-size: 13.5px; margin: 0 0 22px 0; line-height: 1.5; }
+        
+        .btn-primary {
+            display: block;
+            background: #00C853;
+            color: #FFFFFF;
+            padding: 16px;
+            width: 100%;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 15.5px;
+            transition: background 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25);
+        }
+        .btn-primary:hover { background: #00a645; }
+
+        .btn-wpp-home {
+            display: block;
+            background: #E8F7EE;
+            color: #0F2E1C;
+            border: 1.5px solid #00C853;
+            padding: 13px;
+            width: 100%;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        .btn-wpp-home:hover { background: #d4f0df; }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 24px 0 18px 0;
+            color: #8a9990;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #e2ece6;
+        }
+        .divider:not(:empty)::before { margin-right: 10px; }
+        .divider:not(:empty)::after { margin-left: 10px; }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 12px;
+            border: 2px solid #E8F7EE;
+            border-radius: 8px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
+            outline: none;
+            text-align: center;
+        }
+        input:focus { border-color: #0F2E1C; }
+        .btn-secondary {
+            background: #0F2E1C;
+            color: #FFFFFF;
+            padding: 14px;
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14.5px;
+        }
+        .btn-secondary:hover { background: #18442a; }
+
+        .erro-msg {
+            background: #fdecea;
+            color: #c0392b;
+            font-size: 13px;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 14px;
+            font-weight: 600;
+        }
+
+        .footer-seal {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #eef4f0;
+            font-size: 11.5px;
+            color: #7c8b82;
+            line-height: 1.4;
+        }
+        .footer-seal strong { color: #0F2E1C; }
+
+        @media (max-width: 480px) {
+            body { background: #FFFFFF; padding: 0; align-items: flex-start; }
+            .login-box { box-shadow: none; border-radius: 0; padding: 32px 20px; max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <img src="/static/logo.png" alt="Doutor Caixa Logo" class="logo">
+        <h1>Teste de Estresse & Resiliência de Caixa</h1>
+        <p class="subtitle">Descubra em 2 minutos quanto tempo sua operação aguenta se as vendas caírem 30% e identifique gargalos ocultos de margem.</p>
+        
+        <a href="/diagnostico" class="btn-primary">🚀 Gerar Meu Diagnóstico Gratuito</a>
+        <a href="https://wa.me/5581979091165?text=Olá,%20quero%20rodar%20meu%20Teste%20de%20Estresse%20no%20Doutor%20Caixa." target="_blank" class="btn-wpp-home">💬 Fazer Triagem via WhatsApp</a>
+
+        <div class="divider">Já possui laudo?</div>
+
+        {% if erro %}
+            <div class="erro-msg">{{ erro }}</div>
+        {% endif %}
+
+        <form method="POST" action="/acessar">
+            <input type="text" name="cnpj" inputmode="numeric" placeholder="Digite seu CNPJ (somente números)" required>
+            <button type="submit" class="btn-secondary">Consultar Laudo Emitido</button>
+        </form>
+
+        <div class="footer-seal">
+            🔒 Dados processados sob sigilo comercial (LGPD).<br>
+            Uma solução de Inteligência Comercial <strong>MaqTrak</strong>.
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+TEMPLATE_DIAGNOSTICO = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doutor Caixa | Novo Diagnóstico</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #E8F7EE;
+            margin: 0;
+            padding: 24px 16px;
+            color: #0F2E1C;
+        }
+        .form-container {
+            max-width: 540px;
+            margin: 0 auto;
+            background: #FFFFFF;
+            padding: 34px 28px;
+            border-radius: 16px;
+            box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08);
+        }
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #E8F7EE;
+            padding-bottom: 14px;
+            margin-bottom: 22px;
+        }
+        .logo { max-width: 115px; }
+        .back-link { color: #6B7A70; text-decoration: none; font-size: 13px; font-weight: 600; }
+        .back-link:hover { color: #0F2E1C; }
+
+        h2 { margin: 0 0 6px 0; font-size: 20px; color: #0F2E1C; }
+        .desc { margin: 0 0 22px 0; font-size: 13.5px; color: #6B7A70; line-height: 1.45; }
+
+        .field-group { margin-bottom: 16px; }
+        label { display: block; font-size: 13px; font-weight: 700; color: #0F2E1C; margin-bottom: 5px; }
+        .hint { display: block; font-size: 11.5px; color: #6B7A70; margin-bottom: 6px; }
+        input, select {
+            width: 100%;
+            padding: 13px 14px;
+            border: 2px solid #E8F7EE;
+            border-radius: 8px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
+            color: #0F2E1C;
+            outline: none;
+            background: #FFFFFF;
+        }
+        input:focus, select:focus { border-color: #00C853; }
+
+        .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+        .btn-submit {
+            background: #00C853;
+            color: #FFFFFF;
+            padding: 16px;
+            width: 100%;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 8px;
+            box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25);
+        }
+        .btn-submit:hover { background: #00a645; }
+
+        .sigilo-box {
+            margin-top: 18px;
+            background: #f7faf8;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 11.5px;
+            color: #6B7A70;
+            text-align: center;
+        }
+
+        @media (max-width: 540px) {
+            body { background: #FFFFFF; padding: 0; }
+            .form-container { box-shadow: none; border-radius: 0; padding: 22px 16px 36px 16px; max-width: 100%; }
+            .row-2 { grid-template-columns: 1fr; gap: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <div class="top-bar">
+            <img src="/static/logo.png" alt="Doutor Caixa" class="logo">
+            <a href="/" class="back-link">← Voltar</a>
+        </div>
+
+        <h2>Gerar Laudo Executivo</h2>
+        <p class="desc">Insira os números aproximados da sua operação e sua meta de crescimento. O cálculo leva menos de 5 segundos.</p>
+
+        <form method="POST" action="/diagnostico">
+            <div class="field-group">
+                <label>Nome da Empresa</label>
+                <input type="text" name="nome" placeholder="Ex: Distribuidora Recife Ltda" required>
+            </div>
+
+            <div class="field-group">
+                <label>CNPJ (Somente números)</label>
+                <input type="text" name="cnpj" id="cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00" required>
+            </div>
+
+            <div class="field-group">
+                <label>Modelo de Negócio / Operação</label>
+                <select name="modelo" required>
+                    <option value="produtos">Comércio / Varejo / Distribuição (Produtos)</option>
+                    <option value="servicos">Clínicas / Consultórios / Serviços por Agenda</option>
+                    <option value="b2b">B2B Consultivo / Venda Complexa / Orçamentos</option>
+                    <option value="campo">Prestadores de Serviço de Campo / Manutenção</option>
+                </select>
+            </div>
+
+            <div class="row-2">
+                <div class="field-group">
+                    <label>Saldo em Caixa Atual (R$)</label>
+                    <span class="hint">Capital de giro disponível hoje</span>
+                    <input type="text" name="caixa" class="moeda" inputmode="numeric" placeholder="120.000,00" required>
+                </div>
+
+                <div class="field-group">
+                    <label>Faturamento Mensal (R$)</label>
+                    <span class="hint">Média bruta mensal atual</span>
+                    <input type="text" name="fat" class="moeda" inputmode="numeric" placeholder="300.000,00" required>
+                </div>
+            </div>
+
+            <div class="row-2">
+                <div class="field-group">
+                    <label>Custo Fixo Mensal (R$)</label>
+                    <span class="hint">Folha, aluguel, estrutura</span>
+                    <input type="text" name="fixo" class="moeda" inputmode="numeric" placeholder="95.000,00" required>
+                </div>
+
+                <div class="field-group">
+                    <label>Margem de Contribuição (%)</label>
+                    <span class="hint">O que sobra pós-custo direto</span>
+                    <input type="number" step="0.1" min="1" max="100" name="margem" inputmode="decimal" placeholder="Ex: 38" required>
+                </div>
+            </div>
+
+            <div class="field-group">
+                <label>Meta de Faturamento Mensal Desejada (R$)</label>
+                <span class="hint">Onde você quer levar o faturamento da empresa</span>
+                <input type="text" name="meta_fat" class="moeda" inputmode="numeric" placeholder="450.000,00" required>
+            </div>
+
+            <button type="submit" class="btn-submit">📊 Gerar Meu Laudo Agora</button>
+        </form>
+
+        <div class="sigilo-box">
+            🔒 <strong>Sigilo Garantido:</strong> Dados processados sob rigorosos padrões da LGPD.
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('cnpj').addEventListener('input', function (e) {
+            let v = e.target.value.replace(/\D/g, '').slice(0, 14);
+            v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+            v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+            v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+            v = v.replace(/(\d{4})(\d)/, '$1-$2');
+            e.target.value = v;
+        });
+
+        document.querySelectorAll('.moeda').forEach(function(input) {
+            input.addEventListener('input', function(e) {
+                let v = e.target.value.replace(/\D/g, '');
+                if (!v) { e.target.value = ''; return; }
+                v = (parseInt(v, 10) / 100).toFixed(2) + '';
+                v = v.replace('.', ',');
+                v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
+                e.target.value = v;
+            });
+        });
+    </script>
+</body>
+</html>
+"""
+
 TEMPLATE_DASHBOARD = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -145,7 +533,6 @@ TEMPLATE_DASHBOARD = """
         .lista-acoes p:last-child { margin-bottom: 0; }
         .lista-acoes strong { color: var(--branco); font-weight: 700; }
 
-        /* BLOCO EM DESTAQUE: MÉTRICAS CEGAS */
         .metricas-cegas-card {
             background: #fff5f5;
             border: 2px solid #e74c3c;
@@ -166,24 +553,9 @@ TEMPLATE_DASHBOARD = """
             text-transform: uppercase;
             margin-bottom: 8px;
         }
-        .mc-title {
-            color: #922b21;
-            font-size: 18px;
-            font-weight: 700;
-            margin: 0 0 8px 0;
-        }
-        .mc-intro {
-            color: #333333;
-            font-size: 14px;
-            margin: 0 0 14px 0;
-            line-height: 1.5;
-        }
-        .mc-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 14px;
-        }
+        .mc-title { color: #922b21; font-size: 18px; font-weight: 700; margin: 0 0 8px 0; }
+        .mc-intro { color: #333333; font-size: 14px; margin: 0 0 14px 0; line-height: 1.5; }
+        .mc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
         .mc-item {
             background: #ffffff;
             border: 1px solid #f5b7b1;
@@ -191,24 +563,9 @@ TEMPLATE_DASHBOARD = """
             border-radius: 6px;
             padding: 10px 12px;
         }
-        .mc-item strong {
-            display: block;
-            color: #c0392b;
-            font-size: 13px;
-            margin-bottom: 3px;
-        }
-        .mc-item span {
-            display: block;
-            color: #4a4a4a;
-            font-size: 12.5px;
-            line-height: 1.4;
-        }
-        .mc-footer {
-            margin: 0;
-            font-size: 13.5px;
-            font-weight: 700;
-            color: #922b21;
-        }
+        .mc-item strong { display: block; color: #c0392b; font-size: 13px; margin-bottom: 3px; }
+        .mc-item span { display: block; color: #4a4a4a; font-size: 12.5px; line-height: 1.4; }
+        .mc-footer { margin: 0; font-size: 13.5px; font-weight: 700; color: #922b21; }
 
         .consequencia {
             background: #fdeed9;
@@ -243,24 +600,10 @@ TEMPLATE_DASHBOARD = """
         .btn-wpp { background: var(--whatsapp); color: #ffffff; }
         .btn-wpp:hover { background: #1ebe57; }
 
-        /* RESPONSIVIDADE SMARTPHONE (FLAT & HARMÔNICO) */
         @media (max-width: 640px) {
-            body {
-                padding: 0;
-                background: var(--branco);
-            }
-            .container {
-                max-width: 100%;
-                border-radius: 0;
-                box-shadow: none;
-                padding: 20px 16px 32px 16px;
-            }
-            .header {
-                flex-direction: row;
-                align-items: center;
-                padding-bottom: 14px;
-                margin-bottom: 18px;
-            }
+            body { padding: 0; background: var(--branco); }
+            .container { max-width: 100%; border-radius: 0; box-shadow: none; padding: 20px 16px 32px 16px; }
+            .header { flex-direction: row; align-items: center; padding-bottom: 14px; margin-bottom: 18px; }
             .logo { max-width: 110px; }
             .header h1 { font-size: 18px; }
             .header span { font-size: 10px; }
@@ -287,7 +630,7 @@ TEMPLATE_DASHBOARD = """
         
         <div class="paciente-box">
             <p>Paciente (Empresa): <strong>{{ cliente.nome }}</strong></p>
-            <small>CNPJ: {{ cnpj|format_cnpj }}</small>
+            <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong></small>
         </div>
         
         <div class="card alert-blue">
@@ -304,6 +647,14 @@ TEMPLATE_DASHBOARD = """
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
             <div class="card-label">Lucro Líquido Projetado (Cenário de Estresse)</div>
             <div class="value {% if lucro < 0 %}red{% endif %}">R$ {{ lucro|format_brl }}</div>
+        </div>
+
+        <div class="card alert-blue">
+            <div class="card-label">Projeção na Meta de Faturamento Desejada (R$ {{ meta_fat|format_brl }})</div>
+            <div class="value blue" style="font-size: 22px;">
+                Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% | Lucro na Meta: R$ {{ lucro_na_meta|format_brl }}
+            </div>
+            <div class="helper-text">*Lucro Líquido projetado mantendo sua estrutura e margem atual de {{ cliente.margem }}%.</div>
         </div>
 
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
@@ -359,86 +710,10 @@ TEMPLATE_DASHBOARD = """
         {% endif %}
 
         <div class="botoes">
-            <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20financeiro%20no%20Doutor%20Caixa%20e%20preciso%20de%20ajuda%20estratégica%20urgente." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
+            <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome }})%20e%20preciso%20de%20ajuda%20estratégica." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
             <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo PDF</a>
-            <a href="/" class="btn btn-outline">Consultar Outro CNPJ</a>
+            <a href="/" class="btn btn-outline">Nova Consulta</a>
         </div>
-    </div>
-</body>
-</html>
-"""
-
-TEMPLATE_HOME = """
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doutor Caixa | Acesso</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: #E8F7EE;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 16px;
-        }
-        .login-box {
-            background: #FFFFFF;
-            padding: 40px 32px;
-            border-radius: 14px;
-            box-shadow: 0 6px 20px rgba(15, 46, 28, 0.06);
-            text-align: center;
-            max-width: 420px;
-            width: 100%;
-        }
-        .logo { max-width: 140px; margin-bottom: 18px; }
-        h2 { color: #0F2E1C; margin: 0 0 8px 0; font-size: 22px; }
-        p { color: #6B7A70; font-size: 14px; margin: 0 0 20px 0; }
-        input {
-            width: 100%;
-            padding: 15px;
-            margin-bottom: 16px;
-            border: 2px solid #E8F7EE;
-            border-radius: 8px;
-            font-family: 'Poppins', sans-serif;
-            font-size: 16px;
-            outline: none;
-        }
-        input:focus { border-color: #00C853; }
-        button {
-            background: #00C853;
-            color: white;
-            padding: 16px;
-            width: 100%;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 700;
-            font-family: 'Poppins', sans-serif;
-            font-size: 16px;
-        }
-        button:hover { background: #00a645; }
-        @media (max-width: 480px) {
-            body { background: #FFFFFF; padding: 0; align-items: flex-start; }
-            .login-box { box-shadow: none; border-radius: 0; padding: 48px 20px; max-width: 100%; }
-        }
-    </style>
-</head>
-<body>
-    <div class="login-box">
-        <img src="/static/logo.png" alt="Doutor Caixa Logo" class="logo">
-        <h2>Doutor Caixa | Acesso</h2>
-        <p>Digite seu CNPJ para acessar o laudo financeiro.</p>
-        <form method="POST" action="/acessar">
-            <input type="text" name="cnpj" inputmode="numeric" placeholder="Somente números" required>
-            <button type="submit">Acessar Laudo</button>
-        </form>
     </div>
 </body>
 </html>
@@ -464,26 +739,17 @@ TEMPLATE_BLOQUEIO = """
     <div class="box">
         <img src="/static/logo.png" alt="Doutor Caixa Logo" style="max-width: 140px; margin-bottom: 18px;">
         <h2 style="color:#c0392b; margin-top: 0;">Acesso Bloqueado</h2>
-        <p style="color: #6B7A70; font-size: 14px;">Sua assinatura do Doutor Caixa encontra-se pendente.</p>
-        <a href="https://wa.me/5581979091165?text=Olá,%20meu%20acesso%20ao%20Doutor%20Caixa%20está%20bloqueado.%20Poderia%20ajudar?" target="_blank" class="btn-wpp">💬 Falar com Suporte (WhatsApp)</a>
+        <p style="color: #6B7A70; font-size: 14px;">Sua assinatura do Doutor Caixa encontra-se pendente ou o período gratuito expirou.</p>
+        <a href="https://wa.me/5581979091165?text=Olá,%20meu%20acesso%20ao%20Doutor%20Caixa%20está%20bloqueado.%20Como%20faço%20para%20renovar?" target="_blank" class="btn-wpp">💬 Renovar Acesso no WhatsApp</a>
     </div>
 </body>
 </html>
 """
 
-@app.route('/')
-def home():
-    return render_template_string(TEMPLATE_HOME)
-
-@app.route('/acessar', methods=['POST'])
-def acessar():
-    cnpj_input = request.form.get('cnpj', '')
-    cnpj_limpo = "".join(filter(str.isdigit, cnpj_input))
-    
+def renderizar_laudo(cnpj_limpo):
     cliente = buscar_cliente_db(cnpj_limpo)
-    
     if not cliente:
-        return "CNPJ não encontrado na base de dados do Doutor Caixa."
+        return render_template_string(TEMPLATE_HOME, erro="CNPJ não encontrado. Clique no botão verde acima para gerar seu diagnóstico gratuito.")
         
     if not cliente['ativo']:
         return render_template_string(TEMPLATE_BLOQUEIO)
@@ -493,20 +759,69 @@ def acessar():
     meses_runway = cliente['caixa'] / abs(lucro) if lucro < 0 else 0
     ponto_equilibrio = cliente['fixo'] / (cliente['margem'] / 100)
     
+    meta_fat = cliente['meta_fat']
+    crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
+    lucro_na_meta = (meta_fat * (cliente['margem'] / 100)) - cliente['fixo']
+    
+    modelo = cliente.get('modelo', 'produtos')
+    
+    if modelo == 'servicos':
+        acao_modelo = "<strong>Gargalo de Agenda:</strong> Implantar confirmação ativa e lista de espera automatizada para zerar o prejuízo de horários vagos e no-shows."
+    elif modelo == 'b2b':
+        acao_modelo = "<strong>Gargalo Comercial:</strong> Estruturar cadência ativa de 30 contatos/dia e funil de recuperação de orçamentos parados."
+    elif modelo == 'campo':
+        acao_modelo = "<strong>Gargalo de Campo:</strong> Criar esteira de contratos de manutenção preventiva recorrente e roteirização de equipes."
+    else:
+        acao_modelo = "<strong>Gargalo de Varejo:</strong> Treinar equipe de balcão/WhatsApp para venda de valor e blindagem da margem de contribuição."
+
     if lucro < 0:
         acao = [
             "<strong>1. REESTRUTURAÇÃO IMEDIATA:</strong> Reduzir custos fixos não essenciais em pelo menos 15%.",
-            "<strong>2. INTELIGÊNCIA COMERCIAL:</strong> Aumentar o volume de prospecção (Meta urgente: 30 contatos/dia) para reverter a queda.",
+            f"<strong>2. INTELIGÊNCIA COMERCIAL:</strong> {acao_modelo}",
             "<strong>3. PROTEÇÃO DE CAPITAL:</strong> Congelar antecipações de recebíveis e renegociar prazos com fornecedores."
         ]
     else:
         acao = [
             "<strong>1. EXPANSÃO ESTRATÉGICA:</strong> Utilizar a resiliência do caixa para campanhas de aquisição de novos clientes.",
-            "<strong>2. BLINDAGEM DE MARGEM:</strong> Revisar a precificação para potencializar o lucro líquido.",
-            "<strong>3. ESCALA DE VENDAS:</strong> Subir a régua de contatos diários focando em alto ticket."
+            f"<strong>2. BLINDAGEM DE MARGEM:</strong> {acao_modelo}",
+            "<strong>3. ESCALA DE VENDAS:</strong> Subir a régua de contatos diários focando em atingir a meta de R$ " + format_brl(meta_fat) + "."
         ]
     
-    return render_template_string(TEMPLATE_DASHBOARD, cliente=cliente, cnpj=cnpj_limpo, fat_estresse=fat_estresse, lucro=lucro, meses_runway=meses_runway, acao=acao, ponto_equilibrio=ponto_equilibrio)
+    return render_template_string(TEMPLATE_DASHBOARD, cliente=cliente, cnpj=cnpj_limpo, fat_estresse=fat_estresse, lucro=lucro, meses_runway=meses_runway, acao=acao, ponto_equilibrio=ponto_equilibrio, meta_fat=meta_fat, crescimento_necessario=crescimento_necessario, lucro_na_meta=lucro_na_meta)
+
+@app.route('/')
+def home():
+    return render_template_string(TEMPLATE_HOME, erro=None)
+
+@app.route('/diagnostico', methods=['GET', 'POST'])
+def diagnostico():
+    if request.method == 'GET':
+        return render_template_string(TEMPLATE_DIAGNOSTICO)
+    
+    nome = request.form.get('nome', 'Empresa Consultada')
+    cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
+    modelo = request.form.get('modelo', 'produtos')
+    caixa = parse_brl(request.form.get('caixa', '0'))
+    fat = parse_brl(request.form.get('fat', '0'))
+    fixo = parse_brl(request.form.get('fixo', '0'))
+    margem = float(request.form.get('margem', '30').replace(',', '.'))
+    meta_fat = parse_brl(request.form.get('meta_fat', str(fat * 1.3)))
+
+    if not cnpj_limpo:
+        return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
+
+    salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat)
+    return redirect(url_for('laudo_direto', cnpj=cnpj_limpo))
+
+@app.route('/acessar', methods=['POST'])
+def acessar():
+    cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
+    return renderizar_laudo(cnpj_limpo)
+
+@app.route('/laudo/<cnpj>')
+def laudo_direto(cnpj):
+    cnpj_limpo = "".join(filter(str.isdigit, str(cnpj)))
+    return renderizar_laudo(cnpj_limpo)
 
 @app.route('/baixar_pdf/<cnpj>')
 def baixar_pdf(cnpj):
@@ -517,6 +832,9 @@ def baixar_pdf(cnpj):
     fat_estresse = cliente['fat'] * 0.70
     lucro = (fat_estresse * (cliente['margem'] / 100)) - cliente['fixo']
     ponto_equilibrio = cliente['fixo'] / (cliente['margem'] / 100)
+    meta_fat = cliente['meta_fat']
+    crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
+    lucro_na_meta = (meta_fat * (cliente['margem'] / 100)) - cliente['fixo']
     is_critical = lucro < 0
     
     class PDF(FPDF):
@@ -566,7 +884,7 @@ def baixar_pdf(cnpj):
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 5.5, f"CNPJ: {format_cnpj(cnpj)}", ln=1)
+    pdf.cell(175, 5.5, f"CNPJ: {format_cnpj(cnpj)}  |  Setor: {cliente['modelo'].upper()}", ln=1)
     pdf.set_y(y + 19 + 7)
 
     # --- BLOCO 2: PONTO DE EQUILÍBRIO ---
@@ -608,7 +926,24 @@ def baixar_pdf(cnpj):
     pdf.cell(175, 8.5, f"R$ {format_brl(lucro)}   ({status_text})", ln=1)
     pdf.set_y(y + 28 + 7)
 
-    # --- BLOCO 4: FÔLEGO FINANCEIRO (RUNWAY) ---
+    # --- BLOCO 4: PROJEÇÃO NA META DESEJADA ---
+    y = pdf.get_y()
+    desenhar_card(y, 25, (235, 245, 251), (41, 128, 185))
+    pdf.set_xy(19, y + 3.5)
+    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_text_color(93, 109, 126)
+    pdf.cell(175, 5, f"PROJEÇÃO NA META DESEJADA (R$ {format_brl(meta_fat)})", ln=1)
+    pdf.set_x(19)
+    pdf.set_font('helvetica', 'B', 12)
+    pdf.set_text_color(41, 128, 185)
+    pdf.cell(175, 7, f"Crescimento Necessário: +{crescimento_necessario:.1f}%  |  Lucro Líquido na Meta: R$ {format_brl(lucro_na_meta)}", ln=1)
+    pdf.set_x(19)
+    pdf.set_font('helvetica', '', 8)
+    pdf.set_text_color(107, 122, 112)
+    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {cliente['margem']}%.", ln=1)
+    pdf.set_y(y + 25 + 7)
+
+    # --- BLOCO 5: FÔLEGO FINANCEIRO (RUNWAY) ---
     y = pdf.get_y()
     desenhar_card(y, 22, bg_color, bar_color)
     pdf.set_xy(19, y + 3.5)
@@ -626,15 +961,25 @@ def baixar_pdf(cnpj):
     pdf.multi_cell(175, 5, texto_runway)
     pdf.set_y(y + 22 + 7)
 
-    # --- BLOCO 5: PRESCRIÇÃO ESTRATÉGICA ---
+    # --- BLOCO 6: PRESCRIÇÃO ESTRATÉGICA ---
+    modelo = cliente.get('modelo', 'produtos')
+    if modelo == 'servicos':
+        acao_modelo = "Implantar confirmação ativa e lista de espera automatizada para zerar horários vagos."
+    elif modelo == 'b2b':
+        acao_modelo = "Estruturar cadência ativa de 30 contatos/dia e funil de recuperação de orçamentos parados."
+    elif modelo == 'campo':
+        acao_modelo = "Criar esteira de contratos de manutenção preventiva recorrente e roteirização de equipes."
+    else:
+        acao_modelo = "Treinar equipe de balcão/WhatsApp para venda de valor e blindagem da margem."
+
     itens_prescricao = [
         ("1. REESTRUTURAÇÃO IMEDIATA: ", "Reduzir custos fixos não essenciais em pelo menos 15%."),
-        ("2. INTELIGÊNCIA COMERCIAL: ", "Aumentar o volume de prospecção (Meta: 30 contatos/dia) para reverter a queda."),
+        ("2. INTELIGÊNCIA COMERCIAL: ", acao_modelo),
         ("3. PROTEÇÃO DE CAPITAL: ", "Congelar antecipações de recebíveis e renegociar prazos com fornecedores.")
     ] if is_critical else [
         ("1. EXPANSÃO ESTRATÉGICA: ", "Utilizar a resiliência do caixa para campanhas de aquisição de novos clientes."),
-        ("2. BLINDAGEM DE MARGEM: ", "Revisar a precificação para potencializar o lucro líquido."),
-        ("3. ESCALA DE VENDAS: ", "Subir a régua de contatos diários (Meta: 30/dia) focando em alto ticket.")
+        ("2. BLINDAGEM DE MARGEM: ", acao_modelo),
+        ("3. ESCALA DE VENDAS: ", f"Subir a régua de contatos diários focando em atingir a meta de R$ {format_brl(meta_fat)}.")
     ]
 
     pdf.set_font('helvetica', '', 9.5)
@@ -724,7 +1069,6 @@ def baixar_pdf(cnpj):
 
     pdf.set_y(y + altura_card_cegas + 9)
 
-    # --- CONSEQUÊNCIA DA INAÇÃO (SE CRÍTICO) ---
     if is_critical:
         y_cons = pdf.get_y()
         desenhar_card(y_cons, 24, (253, 238, 217), (211, 84, 0))
@@ -739,12 +1083,11 @@ def baixar_pdf(cnpj):
         pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {runway:.1f} meses, exigindo captação de crédito a juros predatórios.")
         pdf.set_y(y_cons + 24 + 10)
 
-    # --- CTA WHATSAPP ---
     y_btn = pdf.get_y()
     pdf.set_fill_color(37, 211, 102)
     pdf.set_font('helvetica', 'B', 11.5)
     pdf.set_text_color(255, 255, 255)
-    link_wpp = "https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20preciso%20de%20ajuda%20estratégica."
+    link_wpp = f"https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20preciso%20de%20ajuda%20estratégica."
     pdf.set_xy(45, y_btn)
     pdf.cell(120, 13, "FALAR COM O DOUTOR CAIXA NO WHATSAPP", fill=True, align='C', link=link_wpp)
 
