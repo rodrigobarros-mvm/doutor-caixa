@@ -1,0 +1,8 @@
+Nome da Coluna,Tipo de Dado,Descrição / Restrição
+cnpj,text,11222333000181
+nome,text,Nome da empresa / Paciente
+ativo,boolean,true ou false
+caixa,numeric,"R$ 120.000,00"
+fat,numeric,"R$ 300.000,00"
+fixo,numeric,"R$ 95.000,00"
+margem,numeric,38.0
