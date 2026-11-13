@@ -522,23 +522,23 @@ def baixar_pdf(cnpj):
     class PDF(FPDF):
         def header(self):
             try:
-                self.image('static/logo.png', 12, 10, 32)
+                self.image('static/logo.png', 12, 9, 30)
             except:
                 pass
             self.set_text_color(15, 46, 28)
             self.set_font('helvetica', 'B', 16)
-            self.set_xy(50, 12)
+            self.set_xy(50, 16)
             self.cell(148, 8, 'LAUDO CLÍNICO FINANCEIRO', border=0, align='R')
             
             self.set_font('helvetica', '', 8.5)
             self.set_text_color(107, 122, 112)
-            self.set_xy(50, 20)
+            self.set_xy(50, 24)
             self.cell(148, 6, 'DIAGNÓSTICO DE RESILIÊNCIA E INTELIGÊNCIA DE CAIXA', border=0, align='R')
             
             self.set_draw_color(213, 232, 220)
             self.set_line_width(0.4)
-            self.line(12, 31, 198, 31)
-            self.set_y(37)
+            self.line(12, 43, 198, 43)
+            self.set_y(49)
 
         def footer(self):
             self.set_y(-14)
@@ -626,7 +626,7 @@ def baixar_pdf(cnpj):
     pdf.multi_cell(175, 5, texto_runway)
     pdf.set_y(y + 22 + 7)
 
-    # --- BLOCO 5: PRESCRIÇÃO ESTRATÉGICA (SEM SOBREPOSIÇÃO) ---
+    # --- BLOCO 5: PRESCRIÇÃO ESTRATÉGICA ---
     itens_prescricao = [
         ("1. REESTRUTURAÇÃO IMEDIATA: ", "Reduzir custos fixos não essenciais em pelo menos 15%."),
         ("2. INTELIGÊNCIA COMERCIAL: ", "Aumentar o volume de prospecção (Meta: 30 contatos/dia) para reverter a queda."),
@@ -637,7 +637,6 @@ def baixar_pdf(cnpj):
         ("3. ESCALA DE VENDAS: ", "Subir a régua de contatos diários (Meta: 30/dia) focando em alto ticket.")
     ]
 
-    # Calcula altura exata antes de desenhar o fundo escuro
     pdf.set_font('helvetica', '', 9.5)
     altura_texto_presc = 0
     for tit, desc in itens_prescricao:
@@ -679,7 +678,6 @@ def baixar_pdf(cnpj):
     ]
 
     altura_card_cegas = 96
-    # Fundo suave de alerta + borda vermelha nítida + barra lateral grossa
     pdf.set_fill_color(255, 245, 245)
     pdf.set_draw_color(220, 76, 62)
     pdf.set_line_width(0.5)
@@ -698,7 +696,6 @@ def baixar_pdf(cnpj):
     pdf.multi_cell(172, 5, "O nosso pré-diagnóstico aponta que a sua operação pilota no escuro em 4 indicadores vitais:")
     pdf.ln(3)
 
-    # Cada ponto cego destacado em sua própria sub-faixa branca
     for tit, desc in pontos_cegos:
         y_item = pdf.get_y()
         pdf.set_fill_color(255, 255, 255)
