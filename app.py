@@ -1,6 +1,8 @@
 from flask import Flask, render_template_string, request, send_file, redirect, url_for
 import io
 import math
+import requests
+import urllib.parse
 from fpdf import FPDF
 from supabase import create_client, Client
 
@@ -10,7 +12,35 @@ app = Flask(__name__)
 SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
 
+# --- CONFIGURAÇÃO DE ALERTA WHATSAPP (CALLMEBOT) ---
+SEU_WHATSAPP = "5581979091165"
+CALLMEBOT_API_KEY = "COLE_AQUI_SUA_API_KEY_DO_CALLMEBOT"
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def notificar_novo_lead_whatsapp(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
+    if not CALLMEBOT_API_KEY or "COLE_AQUI" in CALLMEBOT_API_KEY:
+        return
+    
+    wpp_limpo = "".join(filter(str.isdigit, whatsapp_lead))
+    mensagem = (
+        f"🚨 *NOVO LEAD DOUTOR CAIXA!*\n\n"
+        f"👤 *Lead:* {nome_pessoa} ({cargo})\n"
+        f"🏢 *Empresa:* {empresa}\n"
+        f"📱 *WhatsApp:* https://wa.me/55{wpp_limpo}\n"
+        f"💰 *Fat:* R$ {format_brl(fat)} | *Caixa:* R$ {format_brl(caixa)}\n"
+        f"🎯 *Meta:* R$ {format_brl(meta_fat)}\n\n"
+        f"🔗 *Link do Laudo Pronto:*\n"
+        f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
+    )
+    
+    texto_codificado = urllib.parse.quote(mensagem)
+    url = f"https://api.callmebot.com/whatsapp.php?phone={SEU_WHATSAPP}&text={texto_codificado}&apikey={CALLMEBOT_API_KEY}"
+    
+    try:
+        requests.get(url, timeout=5)
+    except Exception as e:
+        print(f"Erro ao enviar notificação WhatsApp: {e}")
 
 def parse_brl(valor_str):
     if not valor_str:
@@ -92,6 +122,7 @@ TEMPLATE_HOME = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Inteligência Financeira B2B</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -154,6 +185,7 @@ TEMPLATE_SUCESSO = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Sucesso</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -190,6 +222,7 @@ TEMPLATE_DIAGNOSTICO = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Novo Diagnóstico</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -332,7 +365,6 @@ TEMPLATE_DIAGNOSTICO = """
     </div>
 
     <script>
-        // Validador de CNPJ (Algoritmo Real)
         function validarCNPJ(cnpj) {
             cnpj = cnpj.replace(/[^\d]+/g,'');
             if(cnpj == '') return false;
@@ -362,7 +394,6 @@ TEMPLATE_DIAGNOSTICO = """
             return true;
         }
 
-        // Validador Geral (Formulário JS - Blindagem WhatsApp e CNPJ)
         function validarForm() {
             let cnpjInput = document.getElementById('cnpj');
             if (!validarCNPJ(cnpjInput.value)) {
@@ -374,7 +405,6 @@ TEMPLATE_DIAGNOSTICO = """
             let wppInput = document.getElementById('whatsapp');
             let wpp = wppInput.value.replace(/\D/g, ''); 
             
-            // Regex Celular BR: 2 dígitos de DDD (não pode começar com 0), dígito 9 obrigatório, e 8 números
             let regexCelularBR = /^[1-9]{2}9\d{8}$/;
             if (!regexCelularBR.test(wpp)) {
                 alert("Por favor, insira um número de celular válido com DDD (ex: 81 99999-9999).");
@@ -420,6 +450,7 @@ TEMPLATE_DASHBOARD = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Laudo Financeiro</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --verde-caixa: #00C853; --verde-profundo: #0F2E1C; --menta-suave: #E8F7EE; --branco: #FFFFFF; --cinza-neutro: #6B7A70; --cor-alerta-texto: #c0392b; --cor-alerta-fundo: #fdeed9; --whatsapp: #25D366; --azul-metrica: #2980b9; --azul-fundo: #ebf5fb; }
@@ -579,6 +610,7 @@ TEMPLATE_BLOQUEIO = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Acesso Bloqueado</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -667,6 +699,7 @@ def diagnostico():
         return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
 
     salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
+    notificar_novo_lead_whatsapp(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
     
     return render_template_string(TEMPLATE_SUCESSO, whatsapp=request.form.get('whatsapp', ''))
 
