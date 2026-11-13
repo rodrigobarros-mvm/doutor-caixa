@@ -12,7 +12,7 @@ SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
 SUPABASE_KEY = "cyJhG6CI0I7IUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ.CyJpC3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ"
 
 # --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
-TELEGRAM_BOT_TOKEN = "0209744162:AAE-Yg8V1FBt1fWf1lNF6G05lF8KDbtkiHQ"
+TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8V1FBt1fWf1lNF6G05lF8KDbtkiHQ"
 TELEGRAM_CHAT_ID = "7635246193"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -100,10 +100,11 @@ def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_f
         "whatsapp": "".join(filter(str.isdigit, whatsapp))
     }
     try:
-        supabase.table("clientes_doutor_caixa").upsert(registro).execute()
+        response = supabase.table("clientes_doutor_caixa").upsert(registro).execute()
+        print("Sucesso ao salvar no Supabase:", response)
         return True
     except Exception as e:
-        print(f"Erro ao salvar no Supabase: {e}")
+        print(f"ERRO CRÍTICO AO SALVAR NO SUPABASE: {e}")
         return False
 
 def format_brl(value):
