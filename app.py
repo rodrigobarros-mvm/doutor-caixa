@@ -2,7 +2,6 @@ from flask import Flask, render_template_string, request, send_file, redirect, u
 import io
 import math
 import requests
-import urllib.parse
 from fpdf import FPDF
 from supabase import create_client, Client
 
@@ -10,16 +9,16 @@ app = Flask(__name__)
 
 # --- CONFIGURAÇÃO DO SUPABASE ---
 SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
+SUPABASE_KEY = "cyJhG6CI0I7IUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ.CyJpC3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ"
 
-# --- CONFIGURAÇÃO DE ALERTA WHATSAPP (CALLMEBOT) ---
-SEU_WHATSAPP = "5581979091165"
-CALLMEBOT_API_KEY = "COLE_AQUI_SUA_API_KEY_DO_CALLMEBOT"
+# --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
+TELEGRAM_BOT_TOKEN = "0209744162:AAE-Yg8V1FBt1fWf1lNF6G05lF8KDbtkiHQ"
+TELEGRAM_CHAT_ID = "7635246193"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def notificar_novo_lead_whatsapp(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
-    if not CALLMEBOT_API_KEY or "COLE_AQUI" in CALLMEBOT_API_KEY:
+def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
+    if not TELEGRAM_BOT_TOKEN or "COLE_AQUI" in TELEGRAM_BOT_TOKEN:
         return
     
     wpp_limpo = "".join(filter(str.isdigit, whatsapp_lead))
@@ -34,13 +33,18 @@ def notificar_novo_lead_whatsapp(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
         f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
     )
     
-    texto_codificado = urllib.parse.quote(mensagem)
-    url = f"https://api.callmebot.com/whatsapp.php?phone={SEU_WHATSAPP}&text={texto_codificado}&apikey={CALLMEBOT_API_KEY}"
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": mensagem,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
     
     try:
-        requests.get(url, timeout=5)
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(f"Erro ao enviar notificação WhatsApp: {e}")
+        print(f"Erro ao enviar notificação Telegram: {e}")
 
 def parse_brl(valor_str):
     if not valor_str:
@@ -699,12 +703,14 @@ def diagnostico():
         return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
 
     salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
-    notificar_novo_lead_whatsapp(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
+    notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
     
     return render_template_string(TEMPLATE_SUCESSO, whatsapp=request.form.get('whatsapp', ''))
 
-@app.route('/acessar', methods=['POST'])
+@app.route('/acessar', methods=['GET', 'POST'])
 def acessar():
+    if request.method == 'GET':
+        return redirect(url_for('home'))
     cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
     return renderizar_laudo(cnpj_limpo)
 
