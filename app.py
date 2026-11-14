@@ -11,11 +11,8 @@ from supabase import create_client, Client
 app = Flask(__name__)
 
 # --- CONFIGURAÇÃO DO SUPABASE ---
-SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
-
-# --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
-TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ"
+SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co/rest/v1/".split("/rest/v1")[0].strip()
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4".strip()
 TELEGRAM_CHAT_ID = "7635246193"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
