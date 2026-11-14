@@ -9,16 +9,17 @@ app = Flask(__name__)
 
 # --- CONFIGURAÇÃO DO SUPABASE ---
 SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co"
-SUPABASE_KEY = "cyJhG6CI0I7IUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ.CyJpC3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGpocWx4a3p4cHgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczODE0MTk3OCwiZXhwIjoyMDUzNzE3OTc4fQ"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
 
 # --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
-TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8V1FBt1fWf1lNF6G05lF8KDbtkiHQ"
+TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ"
 TELEGRAM_CHAT_ID = "7635246193"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
     if not TELEGRAM_BOT_TOKEN or "COLE_AQUI" in TELEGRAM_BOT_TOKEN:
+        print("AVISO TELEGRAM: Token não configurado.")
         return
     
     wpp_limpo = "".join(filter(str.isdigit, whatsapp_lead))
@@ -42,9 +43,10 @@ def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
     }
     
     try:
-        requests.post(url, json=payload, timeout=5)
+        resp = requests.post(url, json=payload, timeout=8)
+        print(f"STATUS TELEGRAM ({resp.status_code}): {resp.text}")
     except Exception as e:
-        print(f"Erro ao enviar notificação Telegram: {e}")
+        print(f"ERRO EXCEÇÃO TELEGRAM: {e}")
 
 def parse_brl(valor_str):
     if not valor_str:
@@ -77,7 +79,7 @@ def buscar_cliente_db(cnpj_bruto):
                 "meta_fat": float(row.get("meta_fat", row["fat"] * 1.3))
             }
     except Exception as e:
-        print(f"Aviso: Nuvem indisponível ({e}). Usando base local...")
+        print(f"ERRO BUSCA SUPABASE: {e}")
     
     BASE_LOCAL_SEGURANCA = {
         "11222333000181": {"nome": "Comércio Exemplo RMR Ltda", "ativo": True, "caixa": 120000.00, "fat": 300000.00, "fixo": 95000.00, "margem": 38.0, "modelo": "produtos", "meta_fat": 400000.00}
@@ -101,7 +103,7 @@ def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_f
     }
     try:
         response = supabase.table("clientes_doutor_caixa").upsert(registro).execute()
-        print("Sucesso ao salvar no Supabase:", response)
+        print(f"SUCESSO SUPABASE: {response.data}")
         return True
     except Exception as e:
         print(f"ERRO CRÍTICO AO SALVAR NO SUPABASE: {e}")
@@ -119,6 +121,10 @@ def format_cnpj(cnpj):
 app.jinja_env.filters['format_brl'] = format_brl
 app.jinja_env.filters['format_cnpj'] = format_cnpj
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_file('static/favicon.png', mimetype='image/png')
+
 # --- TEMPLATES HTML ---
 TEMPLATE_HOME = """
 <!DOCTYPE html>
@@ -128,6 +134,7 @@ TEMPLATE_HOME = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Inteligência Financeira B2B</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -191,6 +198,7 @@ TEMPLATE_SUCESSO = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Sucesso</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -228,6 +236,7 @@ TEMPLATE_DIAGNOSTICO = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Novo Diagnóstico</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
@@ -456,6 +465,7 @@ TEMPLATE_DASHBOARD = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Laudo Financeiro</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --verde-caixa: #00C853; --verde-profundo: #0F2E1C; --menta-suave: #E8F7EE; --branco: #FFFFFF; --cinza-neutro: #6B7A70; --cor-alerta-texto: #c0392b; --cor-alerta-fundo: #fdeed9; --whatsapp: #25D366; --azul-metrica: #2980b9; --azul-fundo: #ebf5fb; }
@@ -616,6 +626,7 @@ TEMPLATE_BLOQUEIO = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa | Acesso Bloqueado</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
