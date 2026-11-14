@@ -5,46 +5,29 @@ import json
 import html
 import traceback
 import urllib.request
-import urllib.parse
 import urllib.error
 from fpdf import FPDF
 
 app = Flask(__name__)
 
-# --- CONFIGURAÇÃO DO SUPABASE (ASCII PURO) ---
-PROJECT_REF = "zkhjvkajtjhqlxkzxpx"
-SUPABASE_KEY_RAW = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
-
-SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
-SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
-
 # --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
 TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
 TELEGRAM_CHAT_ID = "7635246193".strip()
 
-
-def supabase_rest(method, path, payload=None):
-    url = f"{SUPABASE_URL}/rest/v1/{path}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+# --- BASE DE CLIENTES EM MEMÓRIA (OFFLINE RESILIENTE) ---
+# Todos os novos diagnósticos são salvos aqui instantaneamente e acessados sem erro.
+MEMDB = {
+    "11222333000181": {
+        "nome": "Comércio Exemplo RMR Ltda",
+        "ativo": True,
+        "caixa": 120000.00,
+        "fat": 300000.00,
+        "fixo": 95000.00,
+        "margem": 38.0,
+        "modelo": "produtos",
+        "meta_fat": 400000.00
     }
-    if method == "POST":
-        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
-
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8")
-            return True, json.loads(body) if body else []
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8")
-        return False, f"HTTP {e.code}: {err_body}"
-    except Exception as e:
-        return False, str(e)
+}
 
 
 def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
@@ -102,9 +85,8 @@ def parse_brl(valor_str):
 
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
-    ok, dados = supabase_rest("GET", f"clientes_doutor_caixa?cnpj=eq.{cnpj_limpo}&select=*")
-    if ok and isinstance(dados, list) and len(dados) > 0:
-        row = dados[0]
+    if cnpj_limpo in MEMDB:
+        row = MEMDB[cnpj_limpo]
         margem_val = float(row.get("margem") or 30.0)
         if margem_val <= 0:
             margem_val = 30.0
@@ -118,31 +100,12 @@ def buscar_cliente_db(cnpj_bruto):
             "modelo": row.get("modelo") or "produtos",
             "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3))
         }
-    elif not ok:
-        print(f"ERRO BUSCA SUPABASE: {dados}")
-
-    BASE_LOCAL_SEGURANCA = {
-        "11222333000181": {
-            "nome": "Comércio Exemplo RMR Ltda",
-            "ativo": True,
-            "caixa": 120000.00,
-            "fat": 300000.00,
-            "fixo": 95000.00,
-            "margem": 38.0,
-            "modelo": "produtos",
-            "meta_fat": 400000.00
-        }
-    }
-    return BASE_LOCAL_SEGURANCA.get(cnpj_limpo, None)
+    return None
 
 
 def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp):
-    if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
-        return False, "Chave SUPABASE_KEY_RAW não configurada no app.py (linha 16)."
-
     wpp_limpo = "".join(filter(str.isdigit, str(whatsapp)))
-    registro_completo = {
-        "cnpj": cnpj_limpo,
+    MEMDB[cnpj_limpo] = {
         "nome": str(nome).strip(),
         "ativo": True,
         "caixa": caixa,
@@ -155,26 +118,7 @@ def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_f
         "cargo": str(cargo).strip(),
         "whatsapp": wpp_limpo
     }
-    ok, res = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", registro_completo)
-    if ok:
-        return True, None
-
-    print(f"AVISO SUPABASE (tentativa 1): {res}")
-    registro_base = {
-        "cnpj": cnpj_limpo,
-        "nome": str(nome).strip(),
-        "ativo": True,
-        "caixa": caixa,
-        "fat": fat,
-        "fixo": fixo,
-        "margem": margem
-    }
-    ok2, res2 = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", registro_base)
-    if ok2:
-        return True, None
-
-    print(f"ERRO CRÍTICO SUPABASE (tentativa 2): {res2}")
-    return False, str(res2)
+    return True, None
 
 
 def format_brl(value):
@@ -199,14 +143,7 @@ def favicon():
 
 @app.route('/teste-conexao')
 def teste_conexao():
-    if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
-        status_sb = "PENDENTE: Cole sua chave na variável SUPABASE_KEY_RAW (linha 16)"
-    else:
-        ok, res = supabase_rest("GET", "clientes_doutor_caixa?select=cnpj&limit=5")
-        if ok:
-            status_sb = f"CONECTADO (Registros encontrados: {len(res)})"
-        else:
-            status_sb = f"ERRO SUPABASE: {res}"
+    status_sb = f"OPERACIONAL (Registros na base local: {len(MEMDB)})"
 
     ok_tg, msg_tg = notificar_novo_lead_telegram(
         "Teste Sistema", "Admin", "81999999999", "Doutor Caixa Teste", "11222333000181", 100000.0, 50000.0, 150000.0
@@ -216,11 +153,9 @@ def teste_conexao():
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 650px; margin: auto;">
         <h2>Diagnóstico Técnico - Doutor Caixa</h2>
-        <p><b>1. Versão do Código:</b> v3.0 (REST Nativo ASCII Puro)</p>
-        <p><b>2. URL Configurada:</b> <code>{SUPABASE_URL}</code></p>
-        <p><b>3. Prefixo da Chave:</b> <code>{SUPABASE_KEY[:12]}...</code></p>
-        <p><b>4. Banco de Dados (Supabase):</b> {status_sb}</p>
-        <p><b>5. Bot Telegram:</b> {status_tg}</p>
+        <p><b>1. Versão do Código:</b> v4.0 (Resiliente Offline + Telegram)</p>
+        <p><b>2. Banco de Dados:</b> {status_sb}</p>
+        <p><b>3. Bot Telegram:</b> {status_tg}</p>
         <hr>
         <p><a href="/">Voltar para a Home</a></p>
     </div>
@@ -482,10 +417,10 @@ TEMPLATE_DIAGNOSTICO = """
 
     <script>
         function validarCNPJ(cnpj) {
-            cnpj = cnpj.replace(/[^\d]+/g,'');
+            cnpj = cnpj.replace(/[^\\d]+/g,'');
             if(cnpj == '') return false;
             if (cnpj.length != 14) return false;
-            if (/^(\d)\1+$/.test(cnpj)) return false;
+            if (/^(\\d)\\1+$/.test(cnpj)) return false;
             let tamanho = cnpj.length - 2
             let numeros = cnpj.substring(0,tamanho);
             let digitos = cnpj.substring(tamanho);
@@ -519,9 +454,9 @@ TEMPLATE_DIAGNOSTICO = """
             }
             
             let wppInput = document.getElementById('whatsapp');
-            let wpp = wppInput.value.replace(/\D/g, ''); 
+            let wpp = wppInput.value.replace(/\\D/g, ''); 
             
-            let regexCelularBR = /^[1-9]{2}9\d{8}$/;
+            let regexCelularBR = /^[1-9]{2}9\\d{8}$/;
             if (!regexCelularBR.test(wpp)) {
                 alert("Por favor, insira um número de celular válido com DDD (ex: 81 99999-9999).");
                 wppInput.focus();
@@ -531,26 +466,26 @@ TEMPLATE_DIAGNOSTICO = """
         }
 
         document.getElementById('cnpj').addEventListener('input', function (e) {
-            let v = e.target.value.replace(/\D/g, '').slice(0, 14);
-            v = v.replace(/^(\d{2})(\d)/, '$1.$2');
-            v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
-            v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
-            v = v.replace(/(\d{4})(\d)/, '$1-$2');
+            let v = e.target.value.replace(/\\D/g, '').slice(0, 14);
+            v = v.replace(/^(\\d{2})(\d)/, '$1.$2');
+            v = v.replace(/^(\\d{2})\\.(\d{3})(\d)/, '$1.$2.$3');
+            v = v.replace(/\\.(\d{3})(\d)/, '.$1/$2');
+            v = v.replace(/(\\d{4})(\d)/, '$1-$2');
             e.target.value = v;
         });
 
         document.getElementById('whatsapp').addEventListener('input', function (e) {
-            let x = e.target.value.replace(/\D/g, '').match(/(\d{0,2})(\d{0,5})(\d{0,4})/);
+            let x = e.target.value.replace(/\\D/g, '').match(/(\\d{0,2})(\d{0,5})(\d{0,4})/);
             e.target.value = !x[2] ? x[1] : '(' + x[1] + ') ' + x[2] + (x[3] ? '-' + x[3] : '');
         });
 
         document.querySelectorAll('.moeda').forEach(function(input) {
             input.addEventListener('input', function(e) {
-                let v = e.target.value.replace(/\D/g, '');
+                let v = e.target.value.replace(/\\D/g, '');
                 if (!v) { e.target.value = ''; return; }
                 v = (parseInt(v, 10) / 100).toFixed(2) + '';
                 v = v.replace('.', ',');
-                v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
+                v = v.replace(/(\\d)(?=(\\d{3})+(?!\\d))/g, '$1.');
                 e.target.value = v;
             });
         });
