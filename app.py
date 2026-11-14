@@ -5,26 +5,46 @@ import json
 import html
 import traceback
 import urllib.request
+import urllib.parse
 import urllib.error
 from fpdf import FPDF
-from supabase import create_client, Client
 
 app = Flask(__name__)
 
-# --- CONFIGURAÇÃO DO SUPABASE ---
-SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co/rest/v1/".split("/rest/v1")[0].strip()
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4".strip()
+# --- CONFIGURAÇÃO DO SUPABASE (ASCII PURO) ---
+PROJECT_REF = "zkhjvkajtjhqlxkzxpx"
+SUPABASE_KEY_RAW = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
+
+SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
+SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
 
 # --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
 TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
 TELEGRAM_CHAT_ID = "7635246193".strip()
 
-try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    SUPABASE_INIT_ERROR = None
-except Exception as e:
-    supabase = None
-    SUPABASE_INIT_ERROR = str(e)
+
+def supabase_rest(method, path, payload=None):
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    if method == "POST":
+        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            return True, json.loads(body) if body else []
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        return False, f"HTTP {e.code}: {err_body}"
+    except Exception as e:
+        return False, str(e)
 
 
 def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
@@ -82,27 +102,24 @@ def parse_brl(valor_str):
 
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
-    if supabase is not None:
-        try:
-            response = supabase.table("clientes_doutor_caixa").select("*").eq("cnpj", cnpj_limpo).execute()
-            dados = response.data
-            if dados and len(dados) > 0:
-                row = dados[0]
-                margem_val = float(row.get("margem") or 30.0)
-                if margem_val <= 0:
-                    margem_val = 30.0
-                return {
-                    "nome": row["nome"],
-                    "ativo": row.get("ativo", True),
-                    "caixa": float(row.get("caixa") or 0.0),
-                    "fat": float(row.get("fat") or 0.0),
-                    "fixo": float(row.get("fixo") or 0.0),
-                    "margem": margem_val,
-                    "modelo": row.get("modelo") or "produtos",
-                    "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3))
-                }
-        except Exception as e:
-            print(f"ERRO BUSCA SUPABASE: {e}")
+    ok, dados = supabase_rest("GET", f"clientes_doutor_caixa?cnpj=eq.{cnpj_limpo}&select=*")
+    if ok and isinstance(dados, list) and len(dados) > 0:
+        row = dados[0]
+        margem_val = float(row.get("margem") or 30.0)
+        if margem_val <= 0:
+            margem_val = 30.0
+        return {
+            "nome": row["nome"],
+            "ativo": row.get("ativo", True),
+            "caixa": float(row.get("caixa") or 0.0),
+            "fat": float(row.get("fat") or 0.0),
+            "fixo": float(row.get("fixo") or 0.0),
+            "margem": margem_val,
+            "modelo": row.get("modelo") or "produtos",
+            "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3))
+        }
+    elif not ok:
+        print(f"ERRO BUSCA SUPABASE: {dados}")
 
     BASE_LOCAL_SEGURANCA = {
         "11222333000181": {
@@ -120,10 +137,8 @@ def buscar_cliente_db(cnpj_bruto):
 
 
 def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp):
-    if supabase is None:
-        return False, f"Cliente Supabase não inicializado: {SUPABASE_INIT_ERROR}"
     if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
-        return False, "Chave SUPABASE_KEY não configurada no app.py (linha 16)."
+        return False, "Chave SUPABASE_KEY_RAW não configurada no app.py (linha 16)."
 
     wpp_limpo = "".join(filter(str.isdigit, str(whatsapp)))
     registro_completo = {
@@ -140,26 +155,26 @@ def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_f
         "cargo": str(cargo).strip(),
         "whatsapp": wpp_limpo
     }
-    try:
-        supabase.table("clientes_doutor_caixa").upsert(registro_completo).execute()
+    ok, res = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", registro_completo)
+    if ok:
         return True, None
-    except Exception as e1:
-        print(f"AVISO SUPABASE (tentativa 1): {e1}")
-        registro_base = {
-            "cnpj": cnpj_limpo,
-            "nome": str(nome).strip(),
-            "ativo": True,
-            "caixa": caixa,
-            "fat": fat,
-            "fixo": fixo,
-            "margem": margem
-        }
-        try:
-            supabase.table("clientes_doutor_caixa").upsert(registro_base).execute()
-            return True, None
-        except Exception as e2:
-            print(f"ERRO CRÍTICO SUPABASE (tentativa 2): {e2}")
-            return False, str(e2)
+
+    print(f"AVISO SUPABASE (tentativa 1): {res}")
+    registro_base = {
+        "cnpj": cnpj_limpo,
+        "nome": str(nome).strip(),
+        "ativo": True,
+        "caixa": caixa,
+        "fat": fat,
+        "fixo": fixo,
+        "margem": margem
+    }
+    ok2, res2 = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", registro_base)
+    if ok2:
+        return True, None
+
+    print(f"ERRO CRÍTICO SUPABASE (tentativa 2): {res2}")
+    return False, str(res2)
 
 
 def format_brl(value):
@@ -184,16 +199,14 @@ def favicon():
 
 @app.route('/teste-conexao')
 def teste_conexao():
-    if supabase is None:
-        status_sb = f"ERRO INIT SUPABASE: {SUPABASE_INIT_ERROR}"
-    elif "COLE_AQUI" in SUPABASE_KEY:
-        status_sb = "PENDENTE: Cole sua chave na variável SUPABASE_KEY (linha 16)"
+    if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
+        status_sb = "PENDENTE: Cole sua chave na variável SUPABASE_KEY_RAW (linha 16)"
     else:
-        try:
-            res = supabase.table("clientes_doutor_caixa").select("cnpj").limit(5).execute()
-            status_sb = f"CONECTADO (Registros encontrados: {len(res.data)})"
-        except Exception as e:
-            status_sb = f"ERRO SUPABASE: {e}"
+        ok, res = supabase_rest("GET", "clientes_doutor_caixa?select=cnpj&limit=5")
+        if ok:
+            status_sb = f"CONECTADO (Registros encontrados: {len(res)})"
+        else:
+            status_sb = f"ERRO SUPABASE: {res}"
 
     ok_tg, msg_tg = notificar_novo_lead_telegram(
         "Teste Sistema", "Admin", "81999999999", "Doutor Caixa Teste", "11222333000181", 100000.0, 50000.0, 150000.0
@@ -203,7 +216,7 @@ def teste_conexao():
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 650px; margin: auto;">
         <h2>Diagnóstico Técnico - Doutor Caixa</h2>
-        <p><b>1. Versão do Código:</b> v2.4 (Completo + Blindado)</p>
+        <p><b>1. Versão do Código:</b> v3.0 (REST Nativo ASCII Puro)</p>
         <p><b>2. URL Configurada:</b> <code>{SUPABASE_URL}</code></p>
         <p><b>3. Prefixo da Chave:</b> <code>{SUPABASE_KEY[:12]}...</code></p>
         <p><b>4. Banco de Dados (Supabase):</b> {status_sb}</p>
@@ -822,12 +835,7 @@ def diagnostico():
         if not cnpj_limpo:
             return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
 
-        resultado = salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
-        if isinstance(resultado, tuple):
-            salvou, erro_db = resultado
-        else:
-            salvou, erro_db = bool(resultado), "Falha desconhecida ao gravar no Supabase"
-
+        salvou, erro_db = salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
         if not salvou:
             return render_template_string(TEMPLATE_HOME, erro=f"Erro ao gravar no banco: {erro_db}")
 
