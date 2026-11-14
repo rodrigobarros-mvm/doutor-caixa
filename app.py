@@ -1,7 +1,10 @@
 from flask import Flask, render_template_string, request, send_file, redirect, url_for
 import io
 import math
-import requests
+import json
+import html
+import urllib.request
+import urllib.error
 from fpdf import FPDF
 from supabase import create_client, Client
 
@@ -19,34 +22,41 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
     if not TELEGRAM_BOT_TOKEN or "COLE_AQUI" in TELEGRAM_BOT_TOKEN:
-        print("AVISO TELEGRAM: Token não configurado.")
-        return
+        return False, "Token do Telegram não configurado"
     
-    wpp_limpo = "".join(filter(str.isdigit, whatsapp_lead))
+    wpp_limpo = "".join(filter(str.isdigit, str(whatsapp_lead)))
     mensagem = (
-        f"🚨 *NOVO LEAD DOUTOR CAIXA!*\n\n"
-        f"👤 *Lead:* {nome_pessoa} ({cargo})\n"
-        f"🏢 *Empresa:* {empresa}\n"
-        f"📱 *WhatsApp:* https://wa.me/55{wpp_limpo}\n"
-        f"💰 *Fat:* R$ {format_brl(fat)} | *Caixa:* R$ {format_brl(caixa)}\n"
-        f"🎯 *Meta:* R$ {format_brl(meta_fat)}\n\n"
-        f"🔗 *Link do Laudo Pronto:*\n"
+        f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
+        f"👤 <b>Lead:</b> {html.escape(str(nome_pessoa))} ({html.escape(str(cargo))})\n"
+        f"🏢 <b>Empresa:</b> {html.escape(str(empresa))}\n"
+        f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n"
+        f"💰 <b>Fat:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(caixa)}\n"
+        f"🎯 <b>Meta:</b> R$ {format_brl(meta_fat)}\n\n"
+        f"🔗 <b>Link do Laudo Pronto:</b>\n"
         f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
     )
     
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+    payload = json.dumps({
+        "chat_id": str(TELEGRAM_CHAT_ID).strip(),
         "text": mensagem,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True
-    }
+    }).encode("utf-8")
     
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
-        resp = requests.post(url, json=payload, timeout=8)
-        print(f"STATUS TELEGRAM ({resp.status_code}): {resp.text}")
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = resp.read().decode("utf-8")
+            print(f"SUCESSO TELEGRAM ({resp.status}): {body}")
+            return True, body
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        print(f"ERRO HTTP TELEGRAM ({e.code}): {err_body}")
+        return False, f"HTTP {e.code}: {err_body}"
     except Exception as e:
         print(f"ERRO EXCEÇÃO TELEGRAM: {e}")
+        return False, str(e)
 
 def parse_brl(valor_str):
     if not valor_str:
@@ -70,13 +80,13 @@ def buscar_cliente_db(cnpj_bruto):
             row = dados[0]
             return {
                 "nome": row["nome"],
-                "ativo": row["ativo"],
+                "ativo": row.get("ativo", True),
                 "caixa": float(row["caixa"]),
                 "fat": float(row["fat"]),
                 "fixo": float(row["fixo"]),
                 "margem": float(row["margem"]),
-                "modelo": row.get("modelo", "produtos"),
-                "meta_fat": float(row.get("meta_fat", row["fat"] * 1.3))
+                "modelo": row.get("modelo") or "produtos",
+                "meta_fat": float(row.get("meta_fat") or (float(row["fat"]) * 1.3))
             }
     except Exception as e:
         print(f"ERRO BUSCA SUPABASE: {e}")
@@ -124,6 +134,30 @@ app.jinja_env.filters['format_cnpj'] = format_cnpj
 @app.route('/favicon.ico')
 def favicon():
     return send_file('static/favicon.png', mimetype='image/png')
+
+@app.route('/teste-conexao')
+def teste_conexao():
+    try:
+        res = supabase.table("clientes_doutor_caixa").select("cnpj").limit(5).execute()
+        status_sb = f"CONECTADO (Registros encontrados: {len(res.data)})"
+    except Exception as e:
+        status_sb = f"ERRO SUPABASE: {e}"
+
+    ok_tg, msg_tg = notificar_novo_lead_telegram(
+        "Teste Sistema", "Admin", "81999999999", "Doutor Caixa Teste", "11222333000181", 100000.0, 50000.0, 150000.0
+    )
+    status_tg = "ENVIADO COM SUCESSO!" if ok_tg else f"ERRO TELEGRAM: {msg_tg}"
+
+    return f"""
+    <div style="font-family: sans-serif; padding: 30px; max-width: 600px; margin: auto;">
+        <h2>Diagnóstico Técnico - Doutor Caixa</h2>
+        <p><b>1. Versão do Código:</b> v2.0 (Favicon + Telegram Nativo)</p>
+        <p><b>2. Banco de Dados (Supabase):</b> {status_sb}</p>
+        <p><b>3. Bot Telegram:</b> {status_tg}</p>
+        <hr>
+        <p><a href="/">Voltar para a Home</a></p>
+    </div>
+    """
 
 # --- TEMPLATES HTML ---
 TEMPLATE_HOME = """
