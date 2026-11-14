@@ -3,6 +3,7 @@ import io
 import math
 import json
 import html
+import traceback
 import urllib.request
 import urllib.error
 from fpdf import FPDF
@@ -13,14 +14,23 @@ app = Flask(__name__)
 # --- CONFIGURAÇÃO DO SUPABASE ---
 SUPABASE_URL = "https://zkhjvkajtjhqlxkzxpx.supabase.co/rest/v1/".split("/rest/v1")[0].strip()
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4".strip()
-TELEGRAM_CHAT_ID = "7635246193"
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
+TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
+TELEGRAM_CHAT_ID = "7635246193".strip()
+
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    SUPABASE_INIT_ERROR = None
+except Exception as e:
+    supabase = None
+    SUPABASE_INIT_ERROR = str(e)
+
 
 def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
     if not TELEGRAM_BOT_TOKEN or "COLE_AQUI" in TELEGRAM_BOT_TOKEN:
         return False, "Token do Telegram não configurado"
-    
+
     wpp_limpo = "".join(filter(str.isdigit, str(whatsapp_lead)))
     mensagem = (
         f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
@@ -32,7 +42,7 @@ def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
         f"🔗 <b>Link do Laudo Pronto:</b>\n"
         f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
     )
-    
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = json.dumps({
         "chat_id": str(TELEGRAM_CHAT_ID).strip(),
@@ -40,7 +50,7 @@ def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }).encode("utf-8")
-    
+
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
@@ -55,6 +65,7 @@ def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
         print(f"ERRO EXCEÇÃO TELEGRAM: {e}")
         return False, str(e)
 
+
 def parse_brl(valor_str):
     if not valor_str:
         return 0.0
@@ -68,35 +79,56 @@ def parse_brl(valor_str):
     filtrado = "".join(c for c in limpo if c.isdigit() or c == ".")
     return float(filtrado) if filtrado else 0.0
 
+
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
-    try:
-        response = supabase.table("clientes_doutor_caixa").select("*").eq("cnpj", cnpj_limpo).execute()
-        dados = response.data
-        if dados and len(dados) > 0:
-            row = dados[0]
-            return {
-                "nome": row["nome"],
-                "ativo": row.get("ativo", True),
-                "caixa": float(row["caixa"]),
-                "fat": float(row["fat"]),
-                "fixo": float(row["fixo"]),
-                "margem": float(row["margem"]),
-                "modelo": row.get("modelo") or "produtos",
-                "meta_fat": float(row.get("meta_fat") or (float(row["fat"]) * 1.3))
-            }
-    except Exception as e:
-        print(f"ERRO BUSCA SUPABASE: {e}")
-    
+    if supabase is not None:
+        try:
+            response = supabase.table("clientes_doutor_caixa").select("*").eq("cnpj", cnpj_limpo).execute()
+            dados = response.data
+            if dados and len(dados) > 0:
+                row = dados[0]
+                margem_val = float(row.get("margem") or 30.0)
+                if margem_val <= 0:
+                    margem_val = 30.0
+                return {
+                    "nome": row["nome"],
+                    "ativo": row.get("ativo", True),
+                    "caixa": float(row.get("caixa") or 0.0),
+                    "fat": float(row.get("fat") or 0.0),
+                    "fixo": float(row.get("fixo") or 0.0),
+                    "margem": margem_val,
+                    "modelo": row.get("modelo") or "produtos",
+                    "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3))
+                }
+        except Exception as e:
+            print(f"ERRO BUSCA SUPABASE: {e}")
+
     BASE_LOCAL_SEGURANCA = {
-        "11222333000181": {"nome": "Comércio Exemplo RMR Ltda", "ativo": True, "caixa": 120000.00, "fat": 300000.00, "fixo": 95000.00, "margem": 38.0, "modelo": "produtos", "meta_fat": 400000.00}
+        "11222333000181": {
+            "nome": "Comércio Exemplo RMR Ltda",
+            "ativo": True,
+            "caixa": 120000.00,
+            "fat": 300000.00,
+            "fixo": 95000.00,
+            "margem": 38.0,
+            "modelo": "produtos",
+            "meta_fat": 400000.00
+        }
     }
     return BASE_LOCAL_SEGURANCA.get(cnpj_limpo, None)
 
+
 def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp):
-    registro = {
+    if supabase is None:
+        return False, f"Cliente Supabase não inicializado: {SUPABASE_INIT_ERROR}"
+    if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
+        return False, "Chave SUPABASE_KEY não configurada no app.py (linha 16)."
+
+    wpp_limpo = "".join(filter(str.isdigit, str(whatsapp)))
+    registro_completo = {
         "cnpj": cnpj_limpo,
-        "nome": nome.strip(),
+        "nome": str(nome).strip(),
         "ativo": True,
         "caixa": caixa,
         "fat": fat,
@@ -104,20 +136,35 @@ def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_f
         "margem": margem,
         "modelo": modelo,
         "meta_fat": meta_fat,
-        "nome_pessoa": nome_pessoa.strip(),
-        "cargo": cargo.strip(),
-        "whatsapp": "".join(filter(str.isdigit, whatsapp))
+        "nome_pessoa": str(nome_pessoa).strip(),
+        "cargo": str(cargo).strip(),
+        "whatsapp": wpp_limpo
     }
     try:
-        response = supabase.table("clientes_doutor_caixa").upsert(registro).execute()
-        print(f"SUCESSO SUPABASE: {response.data}")
-        return True
-    except Exception as e:
-        print(f"ERRO CRÍTICO AO SALVAR NO SUPABASE: {e}")
-        return False
+        supabase.table("clientes_doutor_caixa").upsert(registro_completo).execute()
+        return True, None
+    except Exception as e1:
+        print(f"AVISO SUPABASE (tentativa 1): {e1}")
+        registro_base = {
+            "cnpj": cnpj_limpo,
+            "nome": str(nome).strip(),
+            "ativo": True,
+            "caixa": caixa,
+            "fat": fat,
+            "fixo": fixo,
+            "margem": margem
+        }
+        try:
+            supabase.table("clientes_doutor_caixa").upsert(registro_base).execute()
+            return True, None
+        except Exception as e2:
+            print(f"ERRO CRÍTICO SUPABASE (tentativa 2): {e2}")
+            return False, str(e2)
+
 
 def format_brl(value):
     return "{:,.2f}".format(value).replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def format_cnpj(cnpj):
     c = "".join(filter(str.isdigit, str(cnpj)))
@@ -125,20 +172,28 @@ def format_cnpj(cnpj):
         return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:]}"
     return c
 
+
 app.jinja_env.filters['format_brl'] = format_brl
 app.jinja_env.filters['format_cnpj'] = format_cnpj
+
 
 @app.route('/favicon.ico')
 def favicon():
     return send_file('static/favicon.png', mimetype='image/png')
 
+
 @app.route('/teste-conexao')
 def teste_conexao():
-    try:
-        res = supabase.table("clientes_doutor_caixa").select("cnpj").limit(5).execute()
-        status_sb = f"CONECTADO (Registros encontrados: {len(res.data)})"
-    except Exception as e:
-        status_sb = f"ERRO SUPABASE: {e}"
+    if supabase is None:
+        status_sb = f"ERRO INIT SUPABASE: {SUPABASE_INIT_ERROR}"
+    elif "COLE_AQUI" in SUPABASE_KEY:
+        status_sb = "PENDENTE: Cole sua chave na variável SUPABASE_KEY (linha 16)"
+    else:
+        try:
+            res = supabase.table("clientes_doutor_caixa").select("cnpj").limit(5).execute()
+            status_sb = f"CONECTADO (Registros encontrados: {len(res.data)})"
+        except Exception as e:
+            status_sb = f"ERRO SUPABASE: {e}"
 
     ok_tg, msg_tg = notificar_novo_lead_telegram(
         "Teste Sistema", "Admin", "81999999999", "Doutor Caixa Teste", "11222333000181", 100000.0, 50000.0, 150000.0
@@ -146,15 +201,18 @@ def teste_conexao():
     status_tg = "ENVIADO COM SUCESSO!" if ok_tg else f"ERRO TELEGRAM: {msg_tg}"
 
     return f"""
-    <div style="font-family: sans-serif; padding: 30px; max-width: 600px; margin: auto;">
+    <div style="font-family: sans-serif; padding: 30px; max-width: 650px; margin: auto;">
         <h2>Diagnóstico Técnico - Doutor Caixa</h2>
-        <p><b>1. Versão do Código:</b> v2.0 (Favicon + Telegram Nativo)</p>
-        <p><b>2. Banco de Dados (Supabase):</b> {status_sb}</p>
-        <p><b>3. Bot Telegram:</b> {status_tg}</p>
+        <p><b>1. Versão do Código:</b> v2.4 (Completo + Blindado)</p>
+        <p><b>2. URL Configurada:</b> <code>{SUPABASE_URL}</code></p>
+        <p><b>3. Prefixo da Chave:</b> <code>{SUPABASE_KEY[:12]}...</code></p>
+        <p><b>4. Banco de Dados (Supabase):</b> {status_sb}</p>
+        <p><b>5. Bot Telegram:</b> {status_tg}</p>
         <hr>
         <p><a href="/">Voltar para a Home</a></p>
     </div>
     """
+
 
 # --- TEMPLATES HTML ---
 TEMPLATE_HOME = """
@@ -186,7 +244,7 @@ TEMPLATE_HOME = """
         input:focus { border-color: #0F2E1C; }
         .btn-secondary { background: #0F2E1C; color: #FFFFFF; padding: 14px; width: 100%; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: 'Poppins', sans-serif; font-size: 14.5px; }
         .btn-secondary:hover { background: #18442a; }
-        .erro-msg { background: #fdecea; color: #c0392b; font-size: 13px; padding: 10px; border-radius: 6px; margin-bottom: 14px; font-weight: 600; }
+        .erro-msg { background: #fdecea; color: #c0392b; font-size: 13px; padding: 10px; border-radius: 6px; margin-bottom: 14px; font-weight: 600; word-break: break-word; }
         .footer-seal { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eef4f0; font-size: 11.5px; color: #7c8b82; line-height: 1.4; }
         .footer-seal strong { color: #0F2E1C; }
         @media (max-width: 480px) { body { background: #FFFFFF; padding: 0; align-items: flex-start; } .login-box { box-shadow: none; border-radius: 0; padding: 32px 20px; max-width: 100%; } }
@@ -678,25 +736,27 @@ TEMPLATE_BLOQUEIO = """
 </html>
 """
 
+
 def renderizar_laudo(cnpj_limpo):
     cliente = buscar_cliente_db(cnpj_limpo)
     if not cliente:
         return render_template_string(TEMPLATE_HOME, erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
-        
+
     if not cliente['ativo']:
         return render_template_string(TEMPLATE_BLOQUEIO)
-    
+
+    margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
     fat_estresse = cliente['fat'] * 0.70
-    lucro = (fat_estresse * (cliente['margem'] / 100)) - cliente['fixo']
+    lucro = (fat_estresse * (margem_pct / 100)) - cliente['fixo']
     meses_runway = cliente['caixa'] / abs(lucro) if lucro < 0 else 0
-    ponto_equilibrio = cliente['fixo'] / (cliente['margem'] / 100)
-    
+    ponto_equilibrio = cliente['fixo'] / (margem_pct / 100)
+
     meta_fat = cliente['meta_fat']
     crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
-    lucro_na_meta = (meta_fat * (cliente['margem'] / 100)) - cliente['fixo']
-    
+    lucro_na_meta = (meta_fat * (margem_pct / 100)) - cliente['fixo']
+
     modelo = cliente.get('modelo', 'produtos')
-    
+
     if modelo == 'servicos':
         acao_modelo = "<strong>Gargalo de Agenda:</strong> Implantar confirmação ativa e lista de espera automatizada para zerar o prejuízo de horários vagos e no-shows."
     elif modelo == 'b2b':
@@ -718,37 +778,65 @@ def renderizar_laudo(cnpj_limpo):
             f"<strong>2. BLINDAGEM DE MARGEM:</strong> {acao_modelo}",
             "<strong>3. ESCALA DE VENDAS:</strong> Subir a régua de contatos diários focando em atingir a meta de R$ " + format_brl(meta_fat) + "."
         ]
-    
-    return render_template_string(TEMPLATE_DASHBOARD, cliente=cliente, cnpj=cnpj_limpo, fat_estresse=fat_estresse, lucro=lucro, meses_runway=meses_runway, acao=acao, ponto_equilibrio=ponto_equilibrio, meta_fat=meta_fat, crescimento_necessario=crescimento_necessario, lucro_na_meta=lucro_na_meta)
+
+    return render_template_string(
+        TEMPLATE_DASHBOARD,
+        cliente=cliente,
+        cnpj=cnpj_limpo,
+        fat_estresse=fat_estresse,
+        lucro=lucro,
+        meses_runway=meses_runway,
+        acao=acao,
+        ponto_equilibrio=ponto_equilibrio,
+        meta_fat=meta_fat,
+        crescimento_necessario=crescimento_necessario,
+        lucro_na_meta=lucro_na_meta
+    )
+
 
 @app.route('/')
 def home():
     return render_template_string(TEMPLATE_HOME, erro=None)
 
+
 @app.route('/diagnostico', methods=['GET', 'POST'])
 def diagnostico():
     if request.method == 'GET':
         return render_template_string(TEMPLATE_DIAGNOSTICO)
-    
-    nome_pessoa = request.form.get('nome_pessoa', '')
-    cargo = request.form.get('cargo', '')
-    whatsapp = request.form.get('whatsapp', '')
-    nome = request.form.get('nome', 'Empresa Consultada')
-    cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
-    modelo = request.form.get('modelo', 'produtos')
-    caixa = parse_brl(request.form.get('caixa', '0'))
-    fat = parse_brl(request.form.get('fat', '0'))
-    fixo = parse_brl(request.form.get('fixo', '0'))
-    margem = float(request.form.get('margem', '30').replace(',', '.'))
-    meta_fat = parse_brl(request.form.get('meta_fat', str(fat * 1.3)))
 
-    if not cnpj_limpo:
-        return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
+    try:
+        nome_pessoa = request.form.get('nome_pessoa', '')
+        cargo = request.form.get('cargo', '')
+        whatsapp = request.form.get('whatsapp', '')
+        nome = request.form.get('nome', 'Empresa Consultada')
+        cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
+        modelo = request.form.get('modelo', 'produtos')
+        caixa = parse_brl(request.form.get('caixa', '0'))
+        fat = parse_brl(request.form.get('fat', '0'))
+        fixo = parse_brl(request.form.get('fixo', '0'))
+        margem = float(str(request.form.get('margem', '30')).replace(',', '.'))
+        if margem <= 0:
+            margem = 30.0
+        meta_fat = parse_brl(request.form.get('meta_fat', str(fat * 1.3)))
 
-    salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
-    notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
-    
-    return render_template_string(TEMPLATE_SUCESSO, whatsapp=request.form.get('whatsapp', ''))
+        if not cnpj_limpo:
+            return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
+
+        resultado = salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
+        if isinstance(resultado, tuple):
+            salvou, erro_db = resultado
+        else:
+            salvou, erro_db = bool(resultado), "Falha desconhecida ao gravar no Supabase"
+
+        if not salvou:
+            return render_template_string(TEMPLATE_HOME, erro=f"Erro ao gravar no banco: {erro_db}")
+
+        notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
+        return render_template_string(TEMPLATE_SUCESSO, whatsapp=whatsapp)
+    except Exception as e:
+        print(traceback.format_exc())
+        return render_template_string(TEMPLATE_HOME, erro=f"Erro interno no processamento: {str(e)}")
+
 
 @app.route('/acessar', methods=['GET', 'POST'])
 def acessar():
@@ -757,30 +845,33 @@ def acessar():
     cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
     return renderizar_laudo(cnpj_limpo)
 
+
 @app.route('/laudo/<cnpj>')
 def laudo_direto(cnpj):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj)))
     return renderizar_laudo(cnpj_limpo)
+
 
 @app.route('/baixar_pdf/<cnpj>')
 def baixar_pdf(cnpj):
     cliente = buscar_cliente_db(cnpj)
     if not cliente:
         return "Erro", 404
-    
+
+    margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
     fat_estresse = cliente['fat'] * 0.70
-    lucro = (fat_estresse * (cliente['margem'] / 100)) - cliente['fixo']
-    ponto_equilibrio = cliente['fixo'] / (cliente['margem'] / 100)
+    lucro = (fat_estresse * (margem_pct / 100)) - cliente['fixo']
+    ponto_equilibrio = cliente['fixo'] / (margem_pct / 100)
     meta_fat = cliente['meta_fat']
     crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
-    lucro_na_meta = (meta_fat * (cliente['margem'] / 100)) - cliente['fixo']
+    lucro_na_meta = (meta_fat * (margem_pct / 100)) - cliente['fixo']
     is_critical = lucro < 0
-    
+
     class PDF(FPDF):
         def header(self):
             try:
                 self.image('static/logo.png', 12, 9, 30)
-            except:
+            except Exception:
                 pass
             self.set_text_color(15, 46, 28)
             self.set_font('helvetica', 'B', 16)
@@ -872,7 +963,7 @@ def baixar_pdf(cnpj):
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8)
     pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {cliente['margem']}%.", ln=1)
+    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {margem_pct}%.", ln=1)
     pdf.set_y(y + 25 + 7)
 
     y = pdf.get_y()
@@ -1014,6 +1105,7 @@ def baixar_pdf(cnpj):
 
     pdf_bytes = bytearray(pdf.output())
     return send_file(io.BytesIO(pdf_bytes), download_name=f"Laudo_Doutor_Caixa_{cnpj}.pdf", as_attachment=True, mimetype='application/pdf')
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
