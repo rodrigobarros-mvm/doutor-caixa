@@ -1,49 +1,187 @@
 from flask import Flask, render_template_string, request, send_file, redirect, url_for
 import io
+import os
 import math
 import json
 import html
+import socket
+import sqlite3
 import traceback
 import urllib.request
 import urllib.error
+from datetime import datetime
 from fpdf import FPDF
 
 app = Flask(__name__)
 
-# --- CONFIGURAÇÃO DE ALERTA TELEGRAM ---
+# --- 1. CONFIGURAÇÃO DO SUPABASE (NUVEM) ---
+PROJECT_REF = "zkhjvkajtjhqlxkzxpx"
+SUPABASE_KEY_RAW = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
+
+SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
+SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
+
+# --- 2. CONFIGURAÇÃO DE ALERTA TELEGRAM ---
 TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
 TELEGRAM_CHAT_ID = "7635246193".strip()
 
-# --- BASE DE CLIENTES EM MEMÓRIA (OFFLINE RESILIENTE) ---
-# Todos os novos diagnósticos são salvos aqui instantaneamente e acessados sem erro.
-MEMDB = {
-    "11222333000181": {
-        "nome": "Comércio Exemplo RMR Ltda",
-        "ativo": True,
-        "caixa": 120000.00,
-        "fat": 300000.00,
-        "fixo": 95000.00,
-        "margem": 38.0,
-        "modelo": "produtos",
-        "meta_fat": 400000.00
+# --- 3. DISPARO AUTOMÁTICO WHATSAPP (OPCIONAL - EVOLUTION API / Z-API) ---
+# Preencha quando quiser que o robô envie o link do laudo direto no WhatsApp do lead
+WHATSAPP_API_URL = "".strip()      # Ex: https://sua-api.com/message/sendText/doutorcaixa
+WHATSAPP_API_TOKEN = "".strip()    # Sua API Key da instância
+WHATSAPP_SUPORTE = "5581979091165"
+
+# --- 4. BANCO LOCAL SQLITE (GARANTIA DE PERSISTÊNCIA E FALLBACK INSTANTÂNEO) ---
+DB_LOCAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doutor_caixa.db")
+
+
+def init_sqlite():
+    conn = sqlite3.connect(DB_LOCAL_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_doutor_caixa (
+            cnpj TEXT PRIMARY KEY,
+            nome TEXT,
+            ativo INTEGER DEFAULT 1,
+            caixa REAL DEFAULT 0,
+            fat REAL DEFAULT 0,
+            fixo REAL DEFAULT 0,
+            margem REAL DEFAULT 30,
+            modelo TEXT DEFAULT 'produtos',
+            meta_fat REAL DEFAULT 0,
+            ticket_medio REAL DEFAULT 0,
+            tem_cac INTEGER DEFAULT 0,
+            cac REAL DEFAULT 0,
+            tem_ltv INTEGER DEFAULT 0,
+            ltv REAL DEFAULT 0,
+            tem_conversao INTEGER DEFAULT 0,
+            taxa_conversao REAL DEFAULT 0,
+            tem_ciclo INTEGER DEFAULT 0,
+            ciclo_financeiro INTEGER DEFAULT 0,
+            nome_pessoa TEXT DEFAULT '',
+            cargo TEXT DEFAULT '',
+            whatsapp TEXT DEFAULT '',
+            historico_json TEXT DEFAULT '[]',
+            atualizado_em TEXT DEFAULT ''
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_sqlite()
+
+
+def supabase_rest(method, path, payload=None):
+    if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
+        return False, "Chave SUPABASE_KEY não configurada"
+
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
-}
+    if method == "POST":
+        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            body = resp.read().decode("utf-8")
+            return True, json.loads(body) if body else []
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        return False, f"HTTP {e.code}: {err_body}"
+    except Exception as e:
+        return False, str(e)
 
 
-def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnpj_limpo, fat, caixa, meta_fat):
+def disparar_whatsapp_automatico(whatsapp_lead, nome_pessoa, empresa, cnpj_limpo):
+    if not WHATSAPP_API_URL or not WHATSAPP_API_TOKEN:
+        return False, "API WhatsApp não configurada (modo manual ativo)"
+
+    wpp_limpo = "".join(filter(str.isdigit, str(whatsapp_lead)))
+    if not wpp_limpo.startswith("55"):
+        wpp_limpo = "55" + wpp_limpo
+
+    primeiro_nome = str(nome_pessoa).strip().split(" ")[0] if nome_pessoa else "Empresário(a)"
+    texto = (
+        f"Olá, *{primeiro_nome}*! Aqui é o *Doutor Caixa*.\n\n"
+        f"O Laudo Executivo de Resiliência Financeira da *{empresa}* já está pronto.\n\n"
+        f"Acesse seu diagnóstico completo e baixe o PDF por este link exclusivo:\n"
+        f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
+    )
+
+    payload = json.dumps({
+        "number": wpp_limpo,
+        "text": texto
+    }).encode("utf-8")
+
+    headers = {
+        "Content-Type": "application/json",
+        "apikey": WHATSAPP_API_TOKEN,
+        "Authorization": f"Bearer {WHATSAPP_API_TOKEN}"
+    }
+    req = urllib.request.Request(WHATSAPP_API_URL, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return True, resp.read().decode("utf-8")
+    except Exception as e:
+        print(f"AVISO DISPARO WHATSAPP: {e}")
+        return False, str(e)
+
+
+def notificar_novo_lead_telegram(dados):
     if not TELEGRAM_BOT_TOKEN or "COLE_AQUI" in TELEGRAM_BOT_TOKEN:
         return False, "Token do Telegram não configurado"
 
-    wpp_limpo = "".join(filter(str.isdigit, str(whatsapp_lead)))
+    wpp_limpo = "".join(filter(str.isdigit, str(dados.get("whatsapp", ""))))
+    cegas = []
+    controladas = []
+
+    if dados.get("tem_cac"):
+        controladas.append(f"CAC: R$ {format_brl(dados['cac'])}")
+    else:
+        cegas.append("CAC")
+
+    if dados.get("tem_ltv"):
+        controladas.append(f"LTV: R$ {format_brl(dados['ltv'])}")
+    else:
+        cegas.append("LTV")
+
+    if dados.get("tem_conversao"):
+        controladas.append(f"Conv.: {dados['taxa_conversao']}%")
+    else:
+        cegas.append("Taxa de Conversão")
+
+    if dados.get("tem_ciclo"):
+        controladas.append(f"Ciclo Fin.: {dados['ciclo_financeiro']} dias")
+    else:
+        cegas.append("Ciclo Financeiro")
+
+    txt_controladas = ", ".join(controladas) if controladas else "Nenhuma (100% no escuro)"
+    txt_cegas = ", ".join(cegas) if cegas else "Nenhuma (Operação monitorada)"
+
+    tm = dados.get("ticket_medio", 0)
+    fat = dados.get("fat", 0)
+    meta = dados.get("meta_fat", 0)
+    novas_vendas = max(0, math.ceil((meta - fat) / tm)) if tm > 0 else 0
+
     mensagem = (
         f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
-        f"👤 <b>Lead:</b> {html.escape(str(nome_pessoa))} ({html.escape(str(cargo))})\n"
-        f"🏢 <b>Empresa:</b> {html.escape(str(empresa))}\n"
-        f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n"
-        f"💰 <b>Fat:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(caixa)}\n"
-        f"🎯 <b>Meta:</b> R$ {format_brl(meta_fat)}\n\n"
-        f"🔗 <b>Link do Laudo Pronto:</b>\n"
-        f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
+        f"👤 <b>Lead:</b> {html.escape(str(dados.get('nome_pessoa', '')))} ({html.escape(str(dados.get('cargo', '')))})\n"
+        f"🏢 <b>Empresa:</b> {html.escape(str(dados.get('nome', '')))} [{dados.get('modelo', '').upper()}]\n"
+        f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n\n"
+        f"💰 <b>Fat. Atual:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(dados.get('caixa', 0))}\n"
+        f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket Médio:</b> R$ {format_brl(tm)}\n"
+        f"📈 <b>Gap Comercial:</b> +{novas_vendas} vendas/mês para bater a meta\n\n"
+        f"🟢 <b>Sabe/Controla:</b> {html.escape(txt_controladas)}\n"
+        f"🔴 <b>Métricas Cegas:</b> {html.escape(txt_cegas)}\n\n"
+        f"🔗 <b>Laudo Pronto:</b>\n"
+        f"https://doutor-caixa.onrender.com/laudo/{dados.get('cnpj')}"
     )
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -57,15 +195,9 @@ def notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp_lead, empresa, cnp
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
-            body = resp.read().decode("utf-8")
-            print(f"SUCESSO TELEGRAM ({resp.status}): {body}")
-            return True, body
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8")
-        print(f"ERRO HTTP TELEGRAM ({e.code}): {err_body}")
-        return False, f"HTTP {e.code}: {err_body}"
+            return True, resp.read().decode("utf-8")
     except Exception as e:
-        print(f"ERRO EXCEÇÃO TELEGRAM: {e}")
+        print(f"ERRO TELEGRAM: {e}")
         return False, str(e)
 
 
@@ -83,46 +215,169 @@ def parse_brl(valor_str):
     return float(filtrado) if filtrado else 0.0
 
 
+def normalizar_cliente(row):
+    margem_val = float(row.get("margem") or 30.0)
+    if margem_val <= 0:
+        margem_val = 30.0
+    hist_raw = row.get("historico_json") or "[]"
+    if isinstance(hist_raw, str):
+        try:
+            historico = json.loads(hist_raw)
+        except Exception:
+            historico = []
+    elif isinstance(hist_raw, list):
+        historico = hist_raw
+    else:
+        historico = []
+
+    return {
+        "cnpj": str(row.get("cnpj", "")),
+        "nome": row.get("nome", "Empresa"),
+        "ativo": bool(row.get("ativo", True)),
+        "caixa": float(row.get("caixa") or 0.0),
+        "fat": float(row.get("fat") or 0.0),
+        "fixo": float(row.get("fixo") or 0.0),
+        "margem": margem_val,
+        "modelo": row.get("modelo") or "produtos",
+        "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3)),
+        "ticket_medio": float(row.get("ticket_medio") or 0.0),
+        "tem_cac": bool(row.get("tem_cac", False)),
+        "cac": float(row.get("cac") or 0.0),
+        "tem_ltv": bool(row.get("tem_ltv", False)),
+        "ltv": float(row.get("ltv") or 0.0),
+        "tem_conversao": bool(row.get("tem_conversao", False)),
+        "taxa_conversao": float(row.get("taxa_conversao") or 0.0),
+        "tem_ciclo": bool(row.get("tem_ciclo", False)),
+        "ciclo_financeiro": int(row.get("ciclo_financeiro") or 0),
+        "nome_pessoa": row.get("nome_pessoa") or "",
+        "cargo": row.get("cargo") or "",
+        "whatsapp": row.get("whatsapp") or "",
+        "historico": historico
+    }
+
+
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
-    if cnpj_limpo in MEMDB:
-        row = MEMDB[cnpj_limpo]
-        margem_val = float(row.get("margem") or 30.0)
-        if margem_val <= 0:
-            margem_val = 30.0
-        return {
-            "nome": row["nome"],
-            "ativo": row.get("ativo", True),
-            "caixa": float(row.get("caixa") or 0.0),
-            "fat": float(row.get("fat") or 0.0),
-            "fixo": float(row.get("fixo") or 0.0),
-            "margem": margem_val,
-            "modelo": row.get("modelo") or "produtos",
-            "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3))
-        }
+
+    # 1. Tenta Supabase Nuvem
+    ok, dados = supabase_rest("GET", f"clientes_doutor_caixa?cnpj=eq.{cnpj_limpo}&select=*")
+    if ok and isinstance(dados, list) and len(dados) > 0:
+        return normalizar_cliente(dados[0])
+
+    # 2. Tenta SQLite Local
+    try:
+        conn = sqlite3.connect(DB_LOCAL_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM clientes_doutor_caixa WHERE cnpj = ?", (cnpj_limpo,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return normalizar_cliente(dict(row))
+    except Exception as e:
+        print(f"ERRO BUSCA SQLITE: {e}")
+
+    # 3. Exemplo padrão de demonstração
+    if cnpj_limpo == "11222333000181":
+        return normalizar_cliente({
+            "cnpj": "11222333000181",
+            "nome": "Comércio Exemplo RMR Ltda",
+            "ativo": True,
+            "caixa": 120000.00,
+            "fat": 300000.00,
+            "fixo": 95000.00,
+            "margem": 38.0,
+            "modelo": "produtos",
+            "meta_fat": 400000.00,
+            "ticket_medio": 2500.00,
+            "tem_cac": False,
+            "tem_ltv": False,
+            "tem_conversao": True,
+            "taxa_conversao": 18.0,
+            "tem_ciclo": False
+        })
     return None
 
 
-def salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp):
-    wpp_limpo = "".join(filter(str.isdigit, str(whatsapp)))
-    MEMDB[cnpj_limpo] = {
-        "nome": str(nome).strip(),
+def salvar_cliente_db(registro):
+    cnpj_limpo = registro["cnpj"]
+
+    # Verifica se já existe diagnóstico anterior para montar comparativo
+    anterior = buscar_cliente_db(cnpj_limpo)
+    historico = []
+    if anterior and cnpj_limpo != "11222333000181":
+        historico = anterior.get("historico", [])
+        historico.append({
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "caixa": anterior["caixa"],
+            "fat": anterior["fat"],
+            "fixo": anterior["fixo"],
+            "margem": anterior["margem"],
+            "ticket_medio": anterior["ticket_medio"]
+        })
+        historico = historico[-5:]  # Mantém os últimos 5 registros
+
+    registro["historico_json"] = json.dumps(historico, ensure_ascii=False)
+    registro["atualizado_em"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. Salva no SQLite Local (garantia imediata)
+    try:
+        conn = sqlite3.connect(DB_LOCAL_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR REPLACE INTO clientes_doutor_caixa (
+                cnpj, nome, ativo, caixa, fat, fixo, margem, modelo, meta_fat,
+                ticket_medio, tem_cac, cac, tem_ltv, ltv, tem_conversao, taxa_conversao,
+                tem_ciclo, ciclo_financeiro, nome_pessoa, cargo, whatsapp, historico_json, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            cnpj_limpo, registro["nome"], 1, registro["caixa"], registro["fat"],
+            registro["fixo"], registro["margem"], registro["modelo"], registro["meta_fat"],
+            registro["ticket_medio"], int(registro["tem_cac"]), registro["cac"],
+            int(registro["tem_ltv"]), registro["ltv"], int(registro["tem_conversao"]),
+            registro["taxa_conversao"], int(registro["tem_ciclo"]), registro["ciclo_financeiro"],
+            registro["nome_pessoa"], registro["cargo"], registro["whatsapp"],
+            registro["historico_json"], registro["atualizado_em"]
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"ERRO GRAVAÇÃO SQLITE: {e}")
+
+    # 2. Sincroniza com Supabase Nuvem (sem travar o cliente caso haja instabilidade de DNS)
+    payload_sb = {
+        "cnpj": cnpj_limpo,
+        "nome": registro["nome"],
         "ativo": True,
-        "caixa": caixa,
-        "fat": fat,
-        "fixo": fixo,
-        "margem": margem,
-        "modelo": modelo,
-        "meta_fat": meta_fat,
-        "nome_pessoa": str(nome_pessoa).strip(),
-        "cargo": str(cargo).strip(),
-        "whatsapp": wpp_limpo
+        "caixa": registro["caixa"],
+        "fat": registro["fat"],
+        "fixo": registro["fixo"],
+        "margem": registro["margem"],
+        "modelo": registro["modelo"],
+        "meta_fat": registro["meta_fat"],
+        "ticket_medio": registro["ticket_medio"],
+        "tem_cac": registro["tem_cac"],
+        "cac": registro["cac"],
+        "tem_ltv": registro["tem_ltv"],
+        "ltv": registro["ltv"],
+        "tem_conversao": registro["tem_conversao"],
+        "taxa_conversao": registro["taxa_conversao"],
+        "tem_ciclo": registro["tem_ciclo"],
+        "ciclo_financeiro": registro["ciclo_financeiro"],
+        "nome_pessoa": registro["nome_pessoa"],
+        "cargo": registro["cargo"],
+        "whatsapp": registro["whatsapp"],
+        "historico_json": registro["historico_json"]
     }
-    return True, None
+    ok_sb, res_sb = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", payload_sb)
+    if not ok_sb:
+        print(f"AVISO SYNC SUPABASE: {res_sb}")
+
+    return True, ok_sb
 
 
 def format_brl(value):
-    return "{:,.2f}".format(value).replace(",", "X").replace(".", ",").replace("X", ".")
+    return "{:,.2f}".format(float(value)).replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def format_cnpj(cnpj):
@@ -130,6 +385,11 @@ def format_cnpj(cnpj):
     if len(c) == 14:
         return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:]}"
     return c
+
+
+def pdf_safe(texto):
+    # Remove emojis e caracteres fora do padrão latin-1 para evitar falha no FPDF
+    return str(texto).encode("latin-1", "ignore").decode("latin-1")
 
 
 app.jinja_env.filters['format_brl'] = format_brl
@@ -143,19 +403,26 @@ def favicon():
 
 @app.route('/teste-conexao')
 def teste_conexao():
-    status_sb = f"OPERACIONAL (Registros na base local: {len(MEMDB)})"
+    try:
+        ip_sb = socket.gethostbyname(f"{PROJECT_REF}.supabase.co")
+        dns_status = f"OK ({ip_sb})"
+    except Exception as e:
+        dns_status = f"Falha DNS externa ({e})"
 
-    ok_tg, msg_tg = notificar_novo_lead_telegram(
-        "Teste Sistema", "Admin", "81999999999", "Doutor Caixa Teste", "11222333000181", 100000.0, 50000.0, 150000.0
-    )
-    status_tg = "ENVIADO COM SUCESSO!" if ok_tg else f"ERRO TELEGRAM: {msg_tg}"
+    ok_sb, res_sb = supabase_rest("GET", "clientes_doutor_caixa?select=cnpj&limit=5")
+    status_sb = f"CONECTADO ({len(res_sb)} registros)" if ok_sb else f"Fallback SQLite Ativo ({res_sb})"
+
+    conn = sqlite3.connect(DB_LOCAL_PATH)
+    qtd_local = conn.execute("SELECT COUNT(*) FROM clientes_doutor_caixa").fetchone()[0]
+    conn.close()
 
     return f"""
-    <div style="font-family: sans-serif; padding: 30px; max-width: 650px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa</h2>
-        <p><b>1. Versão do Código:</b> v4.0 (Resiliente Offline + Telegram)</p>
-        <p><b>2. Banco de Dados:</b> {status_sb}</p>
-        <p><b>3. Bot Telegram:</b> {status_tg}</p>
+    <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.0</h2>
+        <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
+        <p><b>2. DNS Supabase:</b> {dns_status}</p>
+        <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
+        <p><b>4. Disparo WhatsApp API:</b> {'CONFIGURADO' if WHATSAPP_API_URL else 'Modo Manual (Link Direto Ativo)'}</p>
         <hr>
         <p><a href="/">Voltar para a Home</a></p>
     </div>
@@ -205,7 +472,7 @@ TEMPLATE_HOME = """
         <p class="subtitle">Descubra em 2 minutos quanto tempo sua operação aguenta se as vendas caírem 30% e identifique gargalos ocultos de margem.</p>
         
         <a href="/diagnostico" class="btn-primary">🚀 Gerar Meu Diagnóstico Gratuito</a>
-        <a href="https://wa.me/5581979091165?text=Olá,%20quero%20rodar%20meu%20Teste%20de%20Estresse%20no%20Doutor%20Caixa." target="_blank" class="btn-wpp-home">💬 Fazer Triagem via WhatsApp</a>
+        <a href="https://wa.me/5581979091165?text=Olá!%20Vim%20pelo%20Doutor%20Caixa%20e%20gostaria%20de%20fazer%20uma%20triagem%20financeira%20e%20comercial%20com%20um%20especialista." target="_blank" class="btn-wpp-home">💬 Fazer Triagem via WhatsApp</a>
 
         <div class="divider">Já possui laudo?</div>
 
@@ -278,7 +545,7 @@ TEMPLATE_DIAGNOSTICO = """
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Poppins', sans-serif; background: #E8F7EE; margin: 0; padding: 24px 16px; color: #0F2E1C; }
-        .form-container { max-width: 580px; margin: 0 auto; background: #FFFFFF; padding: 34px 32px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); }
+        .form-container { max-width: 600px; margin: 0 auto; background: #FFFFFF; padding: 34px 32px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); }
         .top-bar { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #E8F7EE; padding-bottom: 14px; margin-bottom: 22px; }
         .logo { max-width: 115px; }
         .back-link { color: #6B7A70; text-decoration: none; font-size: 13px; font-weight: 600; }
@@ -286,12 +553,13 @@ TEMPLATE_DIAGNOSTICO = """
         h2 { margin: 0 0 6px 0; font-size: 20px; color: #0F2E1C; }
         .desc { margin: 0 0 22px 0; font-size: 13.5px; color: #6B7A70; line-height: 1.45; }
         
-        .section-title { font-size: 12px; font-weight: 700; color: #00C853; text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 12px 0; border-bottom: 1px solid #eef4f0; padding-bottom: 6px; }
+        .section-title { font-size: 12px; font-weight: 700; color: #00C853; text-transform: uppercase; letter-spacing: 0.5px; margin: 26px 0 12px 0; border-bottom: 1px solid #eef4f0; padding-bottom: 6px; }
+        .section-sub { font-size: 12px; color: #6B7A70; margin: -6px 0 14px 0; line-height: 1.4; }
         
         .field-group { margin-bottom: 16px; }
         label { display: block; font-size: 13px; font-weight: 700; color: #0F2E1C; margin-bottom: 5px; }
         .hint { display: block; font-size: 11.5px; color: #6B7A70; margin-bottom: 6px; }
-        input, select { width: 100%; padding: 13px 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14.5px; color: #0F2E1C; outline: none; background: #FFFFFF; transition: 0.2s; }
+        input[type="text"], input[type="tel"], input[type="number"], select { width: 100%; padding: 13px 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14.5px; color: #0F2E1C; outline: none; background: #FFFFFF; transition: 0.2s; }
         input:focus, select:focus { border-color: #00C853; }
         .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -301,7 +569,24 @@ TEMPLATE_DIAGNOSTICO = """
         .wpp-box input { border-color: #f5b041; }
         .wpp-box input:focus { border-color: #d35400; }
 
-        .btn-submit { background: #00C853; color: #FFFFFF; padding: 18px; width: 100%; border: none; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 12px; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
+        /* ESTILO DOS TOGGLES DE MÉTRICAS CEGAS */
+        .metric-card { background: #f8fbf9; border: 1.5px solid #e1ede6; border-radius: 10px; padding: 14px; margin-bottom: 12px; transition: 0.2s; }
+        .metric-card.active { background: #f0fdf4; border-color: #00C853; }
+        .metric-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+        .metric-info strong { display: block; font-size: 13.5px; color: #0F2E1C; }
+        .metric-info span { display: block; font-size: 11.5px; color: #6B7A70; margin-top: 2px; }
+        
+        .switch { position: relative; display: inline-block; width: 48px; height: 26px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5d0; transition: .3s; border-radius: 26px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: #00C853; }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        .metric-input-box { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed #c8e6d4; }
+        .metric-input-box.visible { display: block; }
+
+        .btn-submit { background: #00C853; color: #FFFFFF; padding: 18px; width: 100%; border: none; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 14px; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
         .btn-submit:hover { background: #00a645; }
         .sigilo-box { margin-top: 18px; background: #f7faf8; padding: 12px; border-radius: 8px; font-size: 11.5px; color: #6B7A70; text-align: center; }
 
@@ -324,7 +609,7 @@ TEMPLATE_DIAGNOSTICO = """
 
         <form method="POST" action="/diagnostico" onsubmit="return validarForm()">
             
-            <div class="section-title">Dados do Solicitante</div>
+            <div class="section-title">1. Dados do Solicitante</div>
             
             <div class="row-2">
                 <div class="field-group">
@@ -349,7 +634,7 @@ TEMPLATE_DIAGNOSTICO = """
                 <input type="tel" name="whatsapp" id="whatsapp" placeholder="(81) 99999-9999" required>
             </div>
 
-            <div class="section-title">Dados da Empresa</div>
+            <div class="section-title">2. Dados da Empresa</div>
 
             <div class="field-group">
                 <label>Nome da Empresa</label>
@@ -371,7 +656,7 @@ TEMPLATE_DIAGNOSTICO = """
                 </select>
             </div>
 
-            <div class="section-title">Dados Financeiros (Aproximados)</div>
+            <div class="section-title">3. Dados Financeiros & Comerciais</div>
 
             <div class="row-2">
                 <div class="field-group">
@@ -401,10 +686,93 @@ TEMPLATE_DIAGNOSTICO = """
                 </div>
             </div>
 
-            <div class="field-group">
-                <label>Meta de Faturamento Mensal (R$)</label>
-                <span class="hint">Onde você quer levar o faturamento da empresa</span>
-                <input type="text" name="meta_fat" class="moeda" inputmode="numeric" placeholder="450.000,00" required>
+            <div class="row-2">
+                <div class="field-group">
+                    <label>Ticket Médio das Vendas (R$)</label>
+                    <span class="hint">Valor médio por venda / pedido fechado</span>
+                    <input type="text" name="ticket_medio" class="moeda" inputmode="numeric" placeholder="2.500,00" required>
+                </div>
+
+                <div class="field-group">
+                    <label>Meta de Faturamento Mensal (R$)</label>
+                    <span class="hint">Onde você quer levar o faturamento</span>
+                    <input type="text" name="meta_fat" class="moeda" inputmode="numeric" placeholder="450.000,00" required>
+                </div>
+            </div>
+
+            <div class="section-title">4. Radar de Indicadores (Métricas Cegas)</div>
+            <p class="section-sub">Ative a chave <b>apenas</b> para os indicadores que você realmente mede e tem certeza do número hoje. Se não souber, deixe desligado.</p>
+
+            <!-- CAC -->
+            <div class="metric-card" id="card_cac">
+                <label class="metric-header" for="toggle_cac">
+                    <div class="metric-info">
+                        <strong>Sei meu CAC (Custo de Aquisição por Cliente)</strong>
+                        <span>Quanto você investe em marketing + vendas para conquistar 1 cliente</span>
+                    </div>
+                    <div class="switch">
+                        <input type="checkbox" id="toggle_cac" name="tem_cac" onchange="toggleMetrica('cac')">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                <div class="metric-input-box" id="box_cac">
+                    <label>Informe seu CAC atual (R$)</label>
+                    <input type="text" name="cac" id="input_cac" class="moeda" inputmode="numeric" placeholder="Ex: 350,00">
+                </div>
+            </div>
+
+            <!-- LTV -->
+            <div class="metric-card" id="card_ltv">
+                <label class="metric-header" for="toggle_ltv">
+                    <div class="metric-info">
+                        <strong>Sei meu LTV (Lifetime Value)</strong>
+                        <span>Quanto cada cliente deixa de receita ao longo de todo o relacionamento</span>
+                    </div>
+                    <div class="switch">
+                        <input type="checkbox" id="toggle_ltv" name="tem_ltv" onchange="toggleMetrica('ltv')">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                <div class="metric-input-box" id="box_ltv">
+                    <label>Informe seu LTV médio (R$)</label>
+                    <input type="text" name="ltv" id="input_ltv" class="moeda" inputmode="numeric" placeholder="Ex: 4.800,00">
+                </div>
+            </div>
+
+            <!-- TAXA DE CONVERSÃO -->
+            <div class="metric-card" id="card_conv">
+                <label class="metric-header" for="toggle_conv">
+                    <div class="metric-info">
+                        <strong>Sei minha Taxa de Conversão Comercial</strong>
+                        <span>Percentual de propostas / contatos que viram venda fechada</span>
+                    </div>
+                    <div class="switch">
+                        <input type="checkbox" id="toggle_conv" name="tem_conversao" onchange="toggleMetrica('conv')">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                <div class="metric-input-box" id="box_conv">
+                    <label>Informe sua Taxa de Conversão (%)</label>
+                    <input type="number" step="0.1" min="0.1" max="100" name="taxa_conversao" id="input_conv" inputmode="decimal" placeholder="Ex: 20">
+                </div>
+            </div>
+
+            <!-- CICLO FINANCEIRO -->
+            <div class="metric-card" id="card_ciclo">
+                <label class="metric-header" for="toggle_ciclo">
+                    <div class="metric-info">
+                        <strong>Sei meu Ciclo Financeiro (Prazos)</strong>
+                        <span>Diferença em dias entre pagar fornecedores e receber dos clientes</span>
+                    </div>
+                    <div class="switch">
+                        <input type="checkbox" id="toggle_ciclo" name="tem_ciclo" onchange="toggleMetrica('ciclo')">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                <div class="metric-input-box" id="box_ciclo">
+                    <label>Informe o Ciclo Financeiro (em dias)</label>
+                    <input type="number" step="1" name="ciclo_financeiro" id="input_ciclo" inputmode="numeric" placeholder="Ex: 35">
+                </div>
             </div>
 
             <button type="submit" class="btn-submit">📊 Processar Meus Dados</button>
@@ -416,6 +784,24 @@ TEMPLATE_DIAGNOSTICO = """
     </div>
 
     <script>
+        function toggleMetrica(key) {
+            const chk = document.getElementById('toggle_' + key);
+            const box = document.getElementById('box_' + key);
+            const card = document.getElementById('card_' + key);
+            const inp = document.getElementById('input_' + key);
+            if (chk.checked) {
+                box.classList.add('visible');
+                card.classList.add('active');
+                inp.required = true;
+                inp.focus();
+            } else {
+                box.classList.remove('visible');
+                card.classList.remove('active');
+                inp.required = false;
+                inp.value = '';
+            }
+        }
+
         function validarCNPJ(cnpj) {
             cnpj = cnpj.replace(/[^\\d]+/g,'');
             if(cnpj == '') return false;
@@ -467,15 +853,15 @@ TEMPLATE_DIAGNOSTICO = """
 
         document.getElementById('cnpj').addEventListener('input', function (e) {
             let v = e.target.value.replace(/\\D/g, '').slice(0, 14);
-            v = v.replace(/^(\\d{2})(\d)/, '$1.$2');
-            v = v.replace(/^(\\d{2})\\.(\d{3})(\d)/, '$1.$2.$3');
-            v = v.replace(/\\.(\d{3})(\d)/, '.$1/$2');
-            v = v.replace(/(\\d{4})(\d)/, '$1-$2');
+            v = v.replace(/^(\\d{2})(\\d)/, '$1.$2');
+            v = v.replace(/^(\\d{2})\\.(\\d{3})(\\d)/, '$1.$2.$3');
+            v = v.replace(/\\.(\\d{3})(\\d)/, '.$1/$2');
+            v = v.replace(/(\\d{4})(\\d)/, '$1-$2');
             e.target.value = v;
         });
 
         document.getElementById('whatsapp').addEventListener('input', function (e) {
-            let x = e.target.value.replace(/\\D/g, '').match(/(\\d{0,2})(\d{0,5})(\d{0,4})/);
+            let x = e.target.value.replace(/\\D/g, '').match(/(\\d{0,2})(\\d{0,5})(\\d{0,4})/);
             e.target.value = !x[2] ? x[1] : '(' + x[1] + ') ' + x[2] + (x[3] ? '-' + x[3] : '');
         });
 
@@ -518,6 +904,7 @@ TEMPLATE_DASHBOARD = """
         .paciente-box p { margin: 0; font-size: 16px; color: var(--cinza-neutro); }
         .paciente-box strong { color: var(--verde-profundo); }
         .paciente-box small { display: block; margin-top: 2px; font-size: 13px; color: var(--cinza-neutro); }
+        .hist-box { background: #eef9f2; border: 1.5px solid #00C853; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13.5px; color: #0F2E1C; }
         .card { background: var(--menta-suave); padding: 18px 20px; border-radius: 10px; margin-bottom: 14px; border-left: 5px solid var(--verde-caixa); }
         .card-label { color: var(--cinza-neutro); font-weight: 700; font-size: 14px; }
         .alert-red { border-left-color: var(--cor-alerta-texto); background: var(--cor-alerta-fundo); }
@@ -527,18 +914,24 @@ TEMPLATE_DASHBOARD = """
         .value.red { color: var(--cor-alerta-texto); }
         .value.blue { color: var(--azul-metrica); }
         .helper-text { font-size: 12px; color: var(--cinza-neutro); margin-top: 4px; }
+        .engenharia-box { background: #ffffff; border: 1px solid #bcd9ea; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 13px; color: #1b4f72; }
         .prescricao-card { background: var(--verde-profundo); border-left: 5px solid var(--verde-caixa); color: var(--branco); padding: 22px 20px; border-radius: 10px; margin-bottom: 16px; }
         .prescricao-title { color: var(--verde-caixa); font-size: 16px; font-weight: 700; margin-bottom: 14px; letter-spacing: 0.3px; }
         .lista-acoes p { margin: 0 0 12px 0; color: #f0f4f1; font-size: 15px; line-height: 1.5; }
         .lista-acoes p:last-child { margin-bottom: 0; }
         .lista-acoes strong { color: var(--branco); font-weight: 700; }
         .metricas-cegas-card { background: #fff5f5; border: 2px solid #e74c3c; border-left: 6px solid #c0392b; border-radius: 10px; padding: 22px 20px; margin: 18px 0; }
+        .metricas-cegas-card.all-ok { background: #f0fdf4; border-color: #00C853; border-left-color: #00C853; }
         .mc-badge { display: inline-block; background: #c0392b; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 8px; }
+        .mc-badge.ok { background: #00C853; }
         .mc-title { color: #922b21; font-size: 18px; font-weight: 700; margin: 0 0 8px 0; }
+        .mc-title.ok { color: #0F2E1C; }
         .mc-intro { color: #333333; font-size: 14px; margin: 0 0 14px 0; line-height: 1.5; }
         .mc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
         .mc-item { background: #ffffff; border: 1px solid #f5b7b1; border-left: 4px solid #c0392b; border-radius: 6px; padding: 10px 12px; }
+        .mc-item.ok { border-color: #b7e4c7; border-left-color: #00C853; }
         .mc-item strong { display: block; color: #c0392b; font-size: 13px; margin-bottom: 3px; }
+        .mc-item.ok strong { color: #0F2E1C; }
         .mc-item span { display: block; color: #4a4a4a; font-size: 12.5px; line-height: 1.4; }
         .mc-footer { margin: 0; font-size: 13.5px; font-weight: 700; color: #922b21; }
         .consequencia { background: #fdeed9; border-left: 5px solid #d35400; padding: 16px 18px; margin-bottom: 20px; border-radius: 10px; }
@@ -566,13 +959,20 @@ TEMPLATE_DASHBOARD = """
         
         <div class="paciente-box">
             <p>Paciente (Empresa): <strong>{{ cliente.nome }}</strong></p>
-            <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong></small>
+            <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong>{% if cliente.ticket_medio > 0 %} | Ticket Médio: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %}</small>
         </div>
+
+        {% if comparativo %}
+        <div class="hist-box">
+            📈 <strong>Evolução vs. Última Consulta ({{ comparativo.data }}):</strong><br>
+            Caixa: <strong>{{ comparativo.diff_caixa }}</strong> | Faturamento: <strong>{{ comparativo.diff_fat }}</strong>
+        </div>
+        {% endif %}
         
         <div class="card alert-blue">
             <div class="card-label">Ponto de Equilíbrio (Faturamento Mínimo Mensal)</div>
             <div class="value blue">R$ {{ ponto_equilibrio|format_brl }}</div>
-            <div class="helper-text">*Faturamento necessário para cobrir todos os custos e não ter prejuízo.</div>
+            <div class="helper-text">*Faturamento necessário para cobrir todos os custos e não ter prejuízo{% if vendas_pe > 0 %} (equivale a <b>{{ vendas_pe }} vendas/mês</b> no seu ticket médio){% endif %}.</div>
         </div>
         
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
@@ -591,6 +991,15 @@ TEMPLATE_DASHBOARD = """
                 Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% | Lucro na Meta: R$ {{ lucro_na_meta|format_brl }}
             </div>
             <div class="helper-text">*Lucro Líquido projetado mantendo sua estrutura e margem atual de {{ cliente.margem }}%.</div>
+            {% if cliente.ticket_medio > 0 %}
+            <div class="engenharia-box">
+                🎯 <strong>Engenharia Reversa Comercial (Ticket Médio R$ {{ cliente.ticket_medio|format_brl }}):</strong><br>
+                Hoje você fecha ~<b>{{ vendas_atuais }} vendas/mês</b>. Para atingir a meta de R$ {{ meta_fat|format_brl }}, você precisa de <b>{{ vendas_meta }} vendas/mês</b> (um incremento de <b>+{{ novas_vendas }} novas vendas</b>).
+                {% if cliente.tem_conversao and cliente.taxa_conversao > 0 %}
+                <br>Com sua taxa de conversão de <b>{{ cliente.taxa_conversao }}%</b>, o comercial precisa gerar <b>{{ leads_necessarios }} propostas/oportunidades qualificadas por mês</b>.
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
 
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
@@ -613,29 +1022,29 @@ TEMPLATE_DASHBOARD = """
             </div>
         </div>
 
-        <div class="metricas-cegas-card">
-            <span class="mc-badge">🚨 Risco Oculto Detectado</span>
-            <h3 class="mc-title">ALERTA CRÍTICO: MÉTRICAS CEGAS NA OPERAÇÃO</h3>
-            <p class="mc-intro">O nosso pré-diagnóstico aponta que a sua empresa opera sem visibilidade exata sobre 4 indicadores vitais de escala e margem:</p>
+        <div class="metricas-cegas-card {% if qtd_cegas == 0 %}all-ok{% endif %}">
+            {% if qtd_cegas > 0 %}
+                <span class="mc-badge">🚨 {{ qtd_cegas }} de 4 Indicadores Cegos Detectados</span>
+                <h3 class="mc-title">RADAR DE MÉTRICAS: PONTOS CEGOS NA OPERAÇÃO</h3>
+                <p class="mc-intro">Com base no seu preenchimento, mapeamos o nível de controle da sua gestão comercial e financeira:</p>
+            {% else %}
+                <span class="mc-badge ok">✅ Alta Maturidade de Gestão</span>
+                <h3 class="mc-title ok">RADAR DE MÉTRICAS: 100% MONITORADO</h3>
+                <p class="mc-intro">Sua operação monitora os 4 indicadores vitais de escala e caixa:</p>
+            {% endif %}
+
             <div class="mc-grid">
-                <div class="mc-item">
-                    <strong>1. CAC (Custo de Aquisição)</strong>
-                    <span>Você não sabe quanto custa colocar cada novo cliente para dentro da empresa.</span>
+                {% for m in radar_metricas %}
+                <div class="mc-item {% if m.controlada %}ok{% endif %}">
+                    <strong>{% if m.controlada %}🟢{% else %}🔴{% endif %} {{ m.titulo }}</strong>
+                    <span>{{ m.descricao }}</span>
                 </div>
-                <div class="mc-item">
-                    <strong>2. LTV (Lifetime Value)</strong>
-                    <span>Desconhece o lucro real que cada cliente deixa ao longo do relacionamento.</span>
-                </div>
-                <div class="mc-item">
-                    <strong>3. Taxa de Conversão</strong>
-                    <span>Falta rastreabilidade do funil comercial entre prospecção e fechamento.</span>
-                </div>
-                <div class="mc-item">
-                    <strong>4. Ciclo Financeiro (Prazos)</strong>
-                    <span>Risco de descasamento entre prazo de recebimento e pagamento corroer o caixa.</span>
-                </div>
+                {% endfor %}
             </div>
-            <p class="mc-footer">Pilotar sem esses números significa queimar margem todos os dias no escuro.</p>
+
+            {% if qtd_cegas > 0 %}
+                <p class="mc-footer">Pilotar sem esses {{ qtd_cegas }} indicador(es) significa queimar margem todos os dias no escuro.</p>
+            {% endif %}
         </div>
         
         {% if lucro < 0 %}
@@ -685,14 +1094,7 @@ TEMPLATE_BLOQUEIO = """
 """
 
 
-def renderizar_laudo(cnpj_limpo):
-    cliente = buscar_cliente_db(cnpj_limpo)
-    if not cliente:
-        return render_template_string(TEMPLATE_HOME, erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
-
-    if not cliente['ativo']:
-        return render_template_string(TEMPLATE_BLOQUEIO)
-
+def calcular_metricas_laudo(cliente):
     margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
     fat_estresse = cliente['fat'] * 0.70
     lucro = (fat_estresse * (margem_pct / 100)) - cliente['fixo']
@@ -703,6 +1105,123 @@ def renderizar_laudo(cnpj_limpo):
     crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
     lucro_na_meta = (meta_fat * (margem_pct / 100)) - cliente['fixo']
 
+    tm = cliente.get('ticket_medio', 0.0)
+    vendas_atuais = math.ceil(cliente['fat'] / tm) if tm > 0 else 0
+    vendas_meta = math.ceil(meta_fat / tm) if tm > 0 else 0
+    vendas_pe = math.ceil(ponto_equilibrio / tm) if tm > 0 else 0
+    novas_vendas = max(0, vendas_meta - vendas_atuais)
+    leads_necessarios = math.ceil(vendas_meta / (cliente['taxa_conversao'] / 100)) if (cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0) else 0
+
+    # Radar de Métricas Cegas vs Controladas
+    radar = []
+    qtd_cegas = 0
+
+    if cliente.get('tem_cac'):
+        radar.append({
+            "controlada": True,
+            "titulo": f"1. CAC Controlado: R$ {format_brl(cliente['cac'])}",
+            "descricao": "Você já mede o custo de aquisição. Próximo passo: otimizar canais de menor CAC."
+        })
+    else:
+        qtd_cegas += 1
+        radar.append({
+            "controlada": False,
+            "titulo": "1. CAC (Métrica Cega)",
+            "descricao": "Você não sabe quanto custa colocar cada novo cliente para dentro da empresa."
+        })
+
+    if cliente.get('tem_ltv'):
+        rel_ltv_cac = ""
+        if cliente.get('tem_cac') and cliente.get('cac', 0) > 0:
+            ratio = cliente['ltv'] / cliente['cac']
+            rel_ltv_cac = f" (Relação LTV/CAC: {ratio:.1f}x - {'Saudável' if ratio >= 3 else 'Atenção: ideal >= 3x'})."
+        radar.append({
+            "controlada": True,
+            "titulo": f"2. LTV Controlado: R$ {format_brl(cliente['ltv'])}",
+            "descricao": f"Receita por cliente mapeada.{rel_ltv_cac}"
+        })
+    else:
+        qtd_cegas += 1
+        radar.append({
+            "controlada": False,
+            "titulo": "2. LTV (Métrica Cega)",
+            "descricao": "Desconhece o lucro real que cada cliente deixa ao longo de todo o relacionamento."
+        })
+
+    if cliente.get('tem_conversao'):
+        radar.append({
+            "controlada": True,
+            "titulo": f"3. Taxa de Conversão: {cliente['taxa_conversao']}%",
+            "descricao": f"Funil rastreado. Necessário gerar ~{leads_necessarios} oportunidades/mês para a meta." if leads_necessarios > 0 else "Taxa de fechamento comercial acompanhada."
+        })
+    else:
+        qtd_cegas += 1
+        radar.append({
+            "controlada": False,
+            "titulo": "3. Taxa de Conversão (Métrica Cega)",
+            "descricao": "Falta rastreabilidade exata entre prospecção, orçamentos e fechamento."
+        })
+
+    if cliente.get('tem_ciclo'):
+        dias = cliente['ciclo_financeiro']
+        aviso_ciclo = "Alerta: ciclo longo exige alto capital de giro." if dias > 30 else "Ciclo financeiro sob controle."
+        radar.append({
+            "controlada": True,
+            "titulo": f"4. Ciclo Financeiro: {dias} dias",
+            "descricao": f"Prazo médio mapeado. {aviso_ciclo}"
+        })
+    else:
+        qtd_cegas += 1
+        radar.append({
+            "controlada": False,
+            "titulo": "4. Ciclo Financeiro (Métrica Cega)",
+            "descricao": "Risco de descasamento entre prazos de recebimento e pagamento corroer o caixa."
+        })
+
+    # Histórico comparativo
+    comparativo = None
+    hist = cliente.get("historico", [])
+    if hist and len(hist) > 0:
+        ult = hist[-1]
+        d_caixa = cliente["caixa"] - float(ult.get("caixa", 0))
+        d_fat = cliente["fat"] - float(ult.get("fat", 0))
+        s_caixa = f"+R$ {format_brl(d_caixa)}" if d_caixa >= 0 else f"-R$ {format_brl(abs(d_caixa))}"
+        s_fat = f"+R$ {format_brl(d_fat)}" if d_fat >= 0 else f"-R$ {format_brl(abs(d_fat))}"
+        comparativo = {
+            "data": ult.get("data", "Anterior"),
+            "diff_caixa": s_caixa,
+            "diff_fat": s_fat
+        }
+
+    return {
+        "margem_pct": margem_pct,
+        "fat_estresse": fat_estresse,
+        "lucro": lucro,
+        "meses_runway": meses_runway,
+        "ponto_equilibrio": ponto_equilibrio,
+        "meta_fat": meta_fat,
+        "crescimento_necessario": crescimento_necessario,
+        "lucro_na_meta": lucro_na_meta,
+        "vendas_atuais": vendas_atuais,
+        "vendas_meta": vendas_meta,
+        "vendas_pe": vendas_pe,
+        "novas_vendas": novas_vendas,
+        "leads_necessarios": leads_necessarios,
+        "radar_metricas": radar,
+        "qtd_cegas": qtd_cegas,
+        "comparativo": comparativo
+    }
+
+
+def renderizar_laudo(cnpj_limpo):
+    cliente = buscar_cliente_db(cnpj_limpo)
+    if not cliente:
+        return render_template_string(TEMPLATE_HOME, erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
+
+    if not cliente['ativo']:
+        return render_template_string(TEMPLATE_BLOQUEIO)
+
+    m = calcular_metricas_laudo(cliente)
     modelo = cliente.get('modelo', 'produtos')
 
     if modelo == 'servicos':
@@ -714,7 +1233,9 @@ def renderizar_laudo(cnpj_limpo):
     else:
         acao_modelo = "<strong>Gargalo de Varejo:</strong> Treinar equipe de balcão/WhatsApp para venda de valor e blindagem da margem de contribuição."
 
-    if lucro < 0:
+    txt_meta_vendas = f" (+{m['novas_vendas']} vendas/mês no ticket médio atual)" if m['novas_vendas'] > 0 else ""
+
+    if m['lucro'] < 0:
         acao = [
             "<strong>1. REESTRUTURAÇÃO IMEDIATA:</strong> Reduzir custos fixos não essenciais em pelo menos 15%.",
             f"<strong>2. INTELIGÊNCIA COMERCIAL:</strong> {acao_modelo}",
@@ -724,21 +1245,15 @@ def renderizar_laudo(cnpj_limpo):
         acao = [
             "<strong>1. EXPANSÃO ESTRATÉGICA:</strong> Utilizar a resiliência do caixa para campanhas de aquisição de novos clientes.",
             f"<strong>2. BLINDAGEM DE MARGEM:</strong> {acao_modelo}",
-            "<strong>3. ESCALA DE VENDAS:</strong> Subir a régua de contatos diários focando em atingir a meta de R$ " + format_brl(meta_fat) + "."
+            f"<strong>3. ESCALA DE VENDAS:</strong> Subir a régua de contatos diários focando em atingir a meta de R$ {format_brl(m['meta_fat'])}{txt_meta_vendas}."
         ]
 
     return render_template_string(
         TEMPLATE_DASHBOARD,
         cliente=cliente,
         cnpj=cnpj_limpo,
-        fat_estresse=fat_estresse,
-        lucro=lucro,
-        meses_runway=meses_runway,
         acao=acao,
-        ponto_equilibrio=ponto_equilibrio,
-        meta_fat=meta_fat,
-        crescimento_necessario=crescimento_necessario,
-        lucro_na_meta=lucro_na_meta
+        **m
     )
 
 
@@ -753,29 +1268,53 @@ def diagnostico():
         return render_template_string(TEMPLATE_DIAGNOSTICO)
 
     try:
-        nome_pessoa = request.form.get('nome_pessoa', '')
-        cargo = request.form.get('cargo', '')
-        whatsapp = request.form.get('whatsapp', '')
-        nome = request.form.get('nome', 'Empresa Consultada')
         cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
-        modelo = request.form.get('modelo', 'produtos')
-        caixa = parse_brl(request.form.get('caixa', '0'))
-        fat = parse_brl(request.form.get('fat', '0'))
-        fixo = parse_brl(request.form.get('fixo', '0'))
-        margem = float(str(request.form.get('margem', '30')).replace(',', '.'))
-        if margem <= 0:
-            margem = 30.0
-        meta_fat = parse_brl(request.form.get('meta_fat', str(fat * 1.3)))
-
         if not cnpj_limpo:
             return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
 
-        salvou, erro_db = salvar_cliente_db(cnpj_limpo, nome, caixa, fat, fixo, margem, modelo, meta_fat, nome_pessoa, cargo, whatsapp)
-        if not salvou:
-            return render_template_string(TEMPLATE_HOME, erro=f"Erro ao gravar no banco: {erro_db}")
+        fat = parse_brl(request.form.get('fat', '0'))
+        margem = float(str(request.form.get('margem', '30')).replace(',', '.'))
+        if margem <= 0:
+            margem = 30.0
 
-        notificar_novo_lead_telegram(nome_pessoa, cargo, whatsapp, nome, cnpj_limpo, fat, caixa, meta_fat)
-        return render_template_string(TEMPLATE_SUCESSO, whatsapp=whatsapp)
+        tem_cac = 'tem_cac' in request.form
+        tem_ltv = 'tem_ltv' in request.form
+        tem_conversao = 'tem_conversao' in request.form
+        tem_ciclo = 'tem_ciclo' in request.form
+
+        registro = {
+            "cnpj": cnpj_limpo,
+            "nome_pessoa": request.form.get('nome_pessoa', '').strip(),
+            "cargo": request.form.get('cargo', '').strip(),
+            "whatsapp": "".join(filter(str.isdigit, request.form.get('whatsapp', ''))),
+            "nome": request.form.get('nome', 'Empresa Consultada').strip(),
+            "modelo": request.form.get('modelo', 'produtos'),
+            "caixa": parse_brl(request.form.get('caixa', '0')),
+            "fat": fat,
+            "fixo": parse_brl(request.form.get('fixo', '0')),
+            "margem": margem,
+            "ticket_medio": parse_brl(request.form.get('ticket_medio', '0')),
+            "meta_fat": parse_brl(request.form.get('meta_fat', str(fat * 1.3))),
+            "tem_cac": tem_cac,
+            "cac": parse_brl(request.form.get('cac', '0')) if tem_cac else 0.0,
+            "tem_ltv": tem_ltv,
+            "ltv": parse_brl(request.form.get('ltv', '0')) if tem_ltv else 0.0,
+            "tem_conversao": tem_conversao,
+            "taxa_conversao": float(str(request.form.get('taxa_conversao', '0')).replace(',', '.')) if tem_conversao else 0.0,
+            "tem_ciclo": tem_ciclo,
+            "ciclo_financeiro": int(float(request.form.get('ciclo_financeiro', '0') or 0)) if tem_ciclo else 0
+        }
+
+        salvar_cliente_db(registro)
+        notificar_novo_lead_telegram(registro)
+        disparar_whatsapp_automatico(
+            request.form.get('whatsapp', ''),
+            registro["nome_pessoa"],
+            registro["nome"],
+            cnpj_limpo
+        )
+
+        return render_template_string(TEMPLATE_SUCESSO, whatsapp=request.form.get('whatsapp', ''))
     except Exception as e:
         print(traceback.format_exc())
         return render_template_string(TEMPLATE_HOME, erro=f"Erro interno no processamento: {str(e)}")
@@ -801,14 +1340,8 @@ def baixar_pdf(cnpj):
     if not cliente:
         return "Erro", 404
 
-    margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
-    fat_estresse = cliente['fat'] * 0.70
-    lucro = (fat_estresse * (margem_pct / 100)) - cliente['fixo']
-    ponto_equilibrio = cliente['fixo'] / (margem_pct / 100)
-    meta_fat = cliente['meta_fat']
-    crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
-    lucro_na_meta = (meta_fat * (margem_pct / 100)) - cliente['fixo']
-    is_critical = lucro < 0
+    m = calcular_metricas_laudo(cliente)
+    is_critical = m['lucro'] < 0
 
     class PDF(FPDF):
         def header(self):
@@ -845,73 +1378,87 @@ def baixar_pdf(cnpj):
         pdf.set_fill_color(*cor_barra)
         pdf.rect(12, y_topo, 2.5, altura, 'F')
 
+    # 1. Identificação do Paciente
     y = pdf.get_y()
     desenhar_card(y, 19, (247, 250, 248), (15, 46, 28))
     pdf.set_xy(19, y + 3.5)
     pdf.set_font('helvetica', 'B', 11)
     pdf.set_text_color(15, 46, 28)
-    pdf.cell(175, 6, f"PACIENTE (EMPRESA): {cliente['nome']}", ln=1)
+    pdf.cell(175, 6, pdf_safe(f"PACIENTE (EMPRESA): {cliente['nome']}"), ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 5.5, f"CNPJ: {format_cnpj(cnpj)}  |  Setor: {cliente['modelo'].upper()}", ln=1)
-    pdf.set_y(y + 19 + 7)
+    tm_txt = f"  |  Ticket Médio: R$ {format_brl(cliente['ticket_medio'])}" if cliente['ticket_medio'] > 0 else ""
+    pdf.cell(175, 5.5, pdf_safe(f"CNPJ: {format_cnpj(cnpj)}  |  Setor: {cliente['modelo'].upper()}{tm_txt}"), ln=1)
+    pdf.set_y(y + 19 + 6)
 
+    # 2. Ponto de Equilíbrio
     y = pdf.get_y()
-    desenhar_card(y, 25, (235, 245, 251), (41, 128, 185))
-    pdf.set_xy(19, y + 3.5)
+    desenhar_card(y, 24, (235, 245, 251), (41, 128, 185))
+    pdf.set_xy(19, y + 3)
     pdf.set_font('helvetica', 'B', 9)
     pdf.set_text_color(93, 109, 126)
     pdf.cell(175, 5, "PONTO DE EQUILÍBRIO (FATURAMENTO MÍNIMO MENSAL)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 17)
+    pdf.set_font('helvetica', 'B', 16)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 8, f"R$ {format_brl(ponto_equilibrio)}", ln=1)
+    pdf.cell(175, 7.5, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8)
     pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 4.5, "Faturamento mínimo necessário para cobrir custos fixos e variáveis sem prejuízo.", ln=1)
-    pdf.set_y(y + 25 + 7)
+    pe_vendas = f" ({m['vendas_pe']} vendas/mês no ticket médio atual)" if m['vendas_pe'] > 0 else ""
+    pdf.cell(175, 4.5, pdf_safe(f"Faturamento mínimo para cobrir custos fixos e variáveis sem prejuízo{pe_vendas}."), ln=1)
+    pdf.set_y(y + 24 + 6)
 
+    # 3. Cenário de Estresse
     y = pdf.get_y()
     bg_color = (253, 237, 236) if is_critical else (232, 247, 238)
     bar_color = (192, 57, 43) if is_critical else (0, 200, 83)
     val_color = (192, 57, 43) if is_critical else (15, 46, 28)
     status_text = "PREJUÍZO / QUEIMA DE CAIXA" if is_critical else "CAIXA BLINDADO"
-    desenhar_card(y, 28, bg_color, bar_color)
-    pdf.set_xy(19, y + 3.5)
+    desenhar_card(y, 27, bg_color, bar_color)
+    pdf.set_xy(19, y + 3)
     pdf.set_font('helvetica', 'B', 9)
     pdf.set_text_color(93, 109, 126)
     pdf.cell(175, 5, "DIAGNÓSTICO DE ESTRESSE (CENÁRIO DE QUEDA DE 30% NO FATURAMENTO)", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(175, 5.5, f"Faturamento Projetado: R$ {format_brl(fat_estresse)}   |   Lucro Líquido Projetado:", ln=1)
+    pdf.cell(175, 5.5, f"Faturamento Projetado: R$ {format_brl(m['fat_estresse'])}   |   Lucro Líquido Projetado:", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 15)
+    pdf.set_font('helvetica', 'B', 14.5)
     pdf.set_text_color(*val_color)
-    pdf.cell(175, 8.5, f"R$ {format_brl(lucro)}   ({status_text})", ln=1)
-    pdf.set_y(y + 28 + 7)
+    pdf.cell(175, 8, f"R$ {format_brl(m['lucro'])}   ({status_text})", ln=1)
+    pdf.set_y(y + 27 + 6)
 
+    # 4. Projeção na Meta + Engenharia Reversa
     y = pdf.get_y()
-    desenhar_card(y, 25, (235, 245, 251), (41, 128, 185))
-    pdf.set_xy(19, y + 3.5)
+    alt_meta = 31 if cliente['ticket_medio'] > 0 else 24
+    desenhar_card(y, alt_meta, (235, 245, 251), (41, 128, 185))
+    pdf.set_xy(19, y + 3)
     pdf.set_font('helvetica', 'B', 9)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 5, f"PROJEÇÃO NA META DESEJADA (R$ {format_brl(meta_fat)})", ln=1)
+    pdf.cell(175, 5, f"PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.set_font('helvetica', 'B', 11.5)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 7, f"Crescimento Necessário: +{crescimento_necessario:.1f}%  |  Lucro Líquido na Meta: R$ {format_brl(lucro_na_meta)}", ln=1)
+    pdf.cell(175, 6.5, f"Crescimento Necessário: +{m['crescimento_necessario']:.1f}%  |  Lucro Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8)
     pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {margem_pct}%.", ln=1)
-    pdf.set_y(y + 25 + 7)
+    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {m['margem_pct']}%.", ln=1)
+    if cliente['ticket_medio'] > 0:
+        pdf.set_x(19)
+        pdf.set_font('helvetica', 'B', 8.5)
+        pdf.set_text_color(27, 79, 114)
+        conv_txt = f" | Leads/mês necessários: {m['leads_necessarios']}" if m['leads_necessarios'] > 0 else ""
+        pdf.cell(175, 5, pdf_safe(f"Engenharia Comercial: {m['vendas_atuais']} vendas/mês atuais -> {m['vendas_meta']} vendas/mês na meta (+{m['novas_vendas']} novas vendas){conv_txt}"), ln=1)
+    pdf.set_y(y + alt_meta + 6)
 
+    # 5. Runway
     y = pdf.get_y()
-    desenhar_card(y, 22, bg_color, bar_color)
-    pdf.set_xy(19, y + 3.5)
+    desenhar_card(y, 21, bg_color, bar_color)
+    pdf.set_xy(19, y + 3)
     pdf.set_font('helvetica', 'B', 9)
     pdf.set_text_color(93, 109, 126)
     pdf.cell(175, 5, "FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
@@ -919,13 +1466,13 @@ def baixar_pdf(cnpj):
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(40, 40, 40)
     if is_critical:
-        runway = cliente['caixa'] / abs(lucro)
-        texto_runway = f"ALERTA: O caixa atual (R$ {format_brl(cliente['caixa'])}) suporta apenas {runway:.1f} meses operando neste cenário de estresse."
+        texto_runway = f"ALERTA: O caixa atual (R$ {format_brl(cliente['caixa'])}) suporta apenas {m['meses_runway']:.1f} meses operando neste cenário de estresse."
     else:
         texto_runway = f"ESTÁVEL: A empresa possui margem suficiente para absorver a queda sem queimar o caixa (R$ {format_brl(cliente['caixa'])})."
     pdf.multi_cell(175, 5, texto_runway)
-    pdf.set_y(y + 22 + 7)
+    pdf.set_y(y + 21 + 6)
 
+    # 6. Prescrição Estratégica
     modelo = cliente.get('modelo', 'produtos')
     if modelo == 'servicos':
         acao_modelo = "Implantar confirmação ativa e lista de espera automatizada para zerar horários vagos."
@@ -936,6 +1483,7 @@ def baixar_pdf(cnpj):
     else:
         acao_modelo = "Treinar equipe de balcão/WhatsApp para venda de valor e blindagem da margem."
 
+    txt_meta_vendas = f" (+{m['novas_vendas']} vendas/mês)" if m['novas_vendas'] > 0 else ""
     itens_prescricao = [
         ("1. REESTRUTURAÇÃO IMEDIATA: ", "Reduzir custos fixos não essenciais em pelo menos 15%."),
         ("2. INTELIGÊNCIA COMERCIAL: ", acao_modelo),
@@ -943,7 +1491,7 @@ def baixar_pdf(cnpj):
     ] if is_critical else [
         ("1. EXPANSÃO ESTRATÉGICA: ", "Utilizar a resiliência do caixa para campanhas de aquisição de novos clientes."),
         ("2. BLINDAGEM DE MARGEM: ", acao_modelo),
-        ("3. ESCALA DE VENDAS: ", f"Subir a régua de contatos diários focando em atingir a meta de R$ {format_brl(meta_fat)}.")
+        ("3. ESCALA DE VENDAS: ", f"Subir a régua de contatos diários focando em atingir a meta de R$ {format_brl(m['meta_fat'])}{txt_meta_vendas}.")
     ]
 
     pdf.set_font('helvetica', '', 9.5)
@@ -967,61 +1515,64 @@ def baixar_pdf(cnpj):
     for tit, desc in itens_prescricao:
         pdf.set_x(19)
         pdf.set_font('helvetica', 'B', 9.5)
-        pdf.write(5.2, tit)
+        pdf.write(5.2, pdf_safe(tit))
         pdf.set_font('helvetica', '', 9.5)
-        pdf.write(5.2, desc + "\n")
+        pdf.write(5.2, pdf_safe(desc + "\n"))
         pdf.ln(2.2)
 
     pdf.set_left_margin(12)
     pdf.set_right_margin(12)
 
+    # PÁGINA 2: RADAR DE MÉTRICAS CEGAS PERSONALIZADO
     pdf.add_page()
     y = pdf.get_y()
-    pontos_cegos = [
-        ("1. CAC (Custo de Aquisição de Clientes): ", "Você não sabe quanto custa colocar cada novo cliente para dentro da empresa."),
-        ("2. LTV (Lifetime Value): ", "Desconhece o lucro real que cada cliente deixa ao longo de todo o relacionamento."),
-        ("3. Taxa de Conversão e Funil Comercial: ", "Falta rastreabilidade exata entre prospecção, propostas enviadas e fechamento."),
-        ("4. Ciclo Financeiro (Prazos): ", "Risco oculto de descasamento entre prazos de recebimento e pagamento corroer o caixa.")
-    ]
-    altura_card_cegas = 96
-    pdf.set_fill_color(255, 245, 245)
-    pdf.set_draw_color(220, 76, 62)
+    altura_card_cegas = 98
+    is_all_ok = m['qtd_cegas'] == 0
+
+    pdf.set_fill_color(*( (240, 253, 244) if is_all_ok else (255, 245, 245) ))
+    pdf.set_draw_color(*( (0, 200, 83) if is_all_ok else (220, 76, 62) ))
     pdf.set_line_width(0.5)
     pdf.rect(12, y, 186, altura_card_cegas, 'DF')
-    pdf.set_fill_color(192, 57, 43)
+    pdf.set_fill_color(*( (0, 200, 83) if is_all_ok else (192, 57, 43) ))
     pdf.rect(12, y, 3.5, altura_card_cegas, 'F')
+
     pdf.set_xy(20, y + 5)
     pdf.set_font('helvetica', 'B', 12)
-    pdf.set_text_color(192, 57, 43)
-    pdf.cell(172, 6.5, "ALERTA CRÍTICO: MÉTRICAS CEGAS DETECTADAS NA OPERAÇÃO", ln=1)
+    pdf.set_text_color(*( (15, 46, 28) if is_all_ok else (192, 57, 43) ))
+    titulo_radar = "RADAR DE INDICADORES: 100% MONITORADO" if is_all_ok else f"ALERTA CRÍTICO: {m['qtd_cegas']} DE 4 MÉTRICAS CEGAS NA OPERAÇÃO"
+    pdf.cell(172, 6.5, titulo_radar, ln=1)
+
     pdf.set_x(20)
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.multi_cell(172, 5, "O nosso pré-diagnóstico aponta que a sua operação pilota no escuro em 4 indicadores vitais:")
+    pdf.multi_cell(172, 5, "Raio-X de maturidade comercial e financeira levantado no seu diagnóstico:")
     pdf.ln(3)
 
-    for tit, desc in pontos_cegos:
+    for item in m['radar_metricas']:
         y_item = pdf.get_y()
+        ok_m = item['controlada']
         pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(245, 183, 177)
+        pdf.set_draw_color(*( (183, 228, 199) if ok_m else (245, 183, 177) ))
         pdf.set_line_width(0.3)
         pdf.rect(20, y_item, 172, 13.5, 'DF')
-        pdf.set_fill_color(192, 57, 43)
+        pdf.set_fill_color(*( (0, 200, 83) if ok_m else (192, 57, 43) ))
         pdf.rect(20, y_item, 2, 13.5, 'F')
         pdf.set_xy(24, y_item + 2)
         pdf.set_font('helvetica', 'B', 9.5)
-        pdf.set_text_color(192, 57, 43)
-        pdf.cell(165, 4.5, tit.strip(), ln=1)
+        pdf.set_text_color(*( (15, 46, 28) if ok_m else (192, 57, 43) ))
+        status_tag = "[CONTROLADO] " if ok_m else "[CEGO] "
+        pdf.cell(165, 4.5, pdf_safe(status_tag + item['titulo']), ln=1)
         pdf.set_x(24)
         pdf.set_font('helvetica', '', 8.8)
         pdf.set_text_color(60, 60, 60)
-        pdf.cell(165, 4.5, desc, ln=1)
+        pdf.cell(165, 4.5, pdf_safe(item['descricao']), ln=1)
         pdf.set_y(y_item + 15.5)
 
     pdf.set_x(20)
     pdf.set_font('helvetica', 'B', 9.5)
-    pdf.set_text_color(146, 43, 33)
-    pdf.cell(172, 6, "Operar sem esses números significa queimar margem todos os dias sem perceber.", ln=1)
+    pdf.set_text_color(*( (15, 46, 28) if is_all_ok else (146, 43, 33) ))
+    rodape_radar = "Excelente visibilidade de dados. O foco agora é otimizar conversão e margem." if is_all_ok else "Operar sem esses números significa queimar margem todos os dias sem perceber."
+    pdf.cell(172, 6, rodape_radar, ln=1)
     pdf.set_y(y + altura_card_cegas + 9)
 
     if is_critical:
@@ -1034,8 +1585,7 @@ def baixar_pdf(cnpj):
         pdf.set_x(19)
         pdf.set_font('helvetica', '', 9.2)
         pdf.set_text_color(50, 50, 50)
-        runway = cliente['caixa'] / abs(lucro)
-        pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {runway:.1f} meses, exigindo captação de crédito a juros predatórios.")
+        pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {m['meses_runway']:.1f} meses, exigindo captação de crédito a juros predatórios.")
         pdf.set_y(y_cons + 24 + 10)
 
     y_btn = pdf.get_y()
