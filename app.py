@@ -455,7 +455,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.5</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.6</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -497,7 +497,7 @@ TEMPLATE_HOME = r"""
         .btn-secondary { background: #0F2E1C; color: #FFFFFF; padding: 14px; width: 100%; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: 'Poppins', sans-serif; font-size: 14.5px; }
         .btn-secondary:hover { background: #18442a; }
         .erro-msg { background: #fdecea; color: #c0392b; font-size: 13px; padding: 10px; border-radius: 6px; margin-bottom: 14px; font-weight: 600; word-break: break-word; }
-        .footer-seal { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eef4f0; font-size: 11.5px; color: #7c8b82; line-height: 1.4; }
+        .footer-seal { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eef4f0; font-size: 11px; color: #7c8b82; line-height: 1.5; }
         .footer-seal strong { color: #0F2E1C; }
         @media (max-width: 480px) { body { background: #FFFFFF; padding: 0; align-items: flex-start; } .login-box { box-shadow: none; border-radius: 0; padding: 32px 20px; max-width: 100%; } }
     </style>
@@ -524,7 +524,7 @@ TEMPLATE_HOME = r"""
 
         <div class="footer-seal">
             🔒 Dados protegidos com sigilo total (LGPD).<br>
-            Uma solução de Inteligência Comercial <strong>MaqTrak</strong>.
+            Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
         </div>
     </div>
 </body>
@@ -643,7 +643,9 @@ TEMPLATE_DIAGNOSTICO = r"""
         .btn-next { background: #00C853; color: #FFFFFF; border: none; padding: 16px 22px; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 15.5px; font-weight: 700; cursor: pointer; flex: 2; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
         .btn-next:hover { background: #00a645; }
 
-        .sigilo-box { margin-top: 18px; background: #f7faf8; padding: 12px; border-radius: 8px; font-size: 11.5px; color: #6B7A70; text-align: center; }
+        .sigilo-box { margin-top: 18px; background: #f7faf8; padding: 12px; border-radius: 8px; font-size: 11px; color: #6B7A70; text-align: center; line-height: 1.45; }
+        .brand-footer { margin-top: 7px; padding-top: 7px; border-top: 1px solid #e3ece7; font-size: 10.5px; color: #5f6f65; }
+        .brand-footer strong { color: #0F2E1C; }
 
         @media (max-width: 540px) {
             body { background: #FFFFFF; padding: 0; }
@@ -903,6 +905,7 @@ TEMPLATE_DIAGNOSTICO = r"""
 
         <div class="sigilo-box">
             🔒 <strong>Sigilo Garantido:</strong> Seus dados são confidenciais e protegidos pela LGPD.
+            <div class="brand-footer">Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.</div>
         </div>
     </div>
 
@@ -1103,7 +1106,6 @@ TEMPLATE_DIAGNOSTICO = r"""
             });
         });
 
-        // Inicializa visibilidade correta ao carregar
         atualizarModeloNegocio();
     </script>
 </body>
@@ -1185,6 +1187,8 @@ TEMPLATE_DASHBOARD = r"""
         .btn-outline:hover { background: var(--verde-profundo); color: var(--branco); }
         .btn-wpp { background: var(--whatsapp); color: #ffffff; }
         .btn-wpp:hover { background: #1ebe57; }
+        .dash-footer { margin-top: 24px; padding-top: 14px; border-top: 1px solid #e6efe9; text-align: center; font-size: 11px; color: #7c8b82; }
+        .dash-footer strong { color: #0F2E1C; }
         @media (max-width: 640px) {
             body { padding: 0; background: var(--branco); }
             .container { max-width: 100%; border-radius: 0; box-shadow: none; padding: 20px 16px 32px 16px; }
@@ -1397,6 +1401,10 @@ TEMPLATE_DASHBOARD = r"""
             <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo em PDF</a>
             <a href="/" class="btn btn-outline">Nova Consulta</a>
         </div>
+
+        <div class="dash-footer">
+            Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
+        </div>
     </div>
 </body>
 </html>
@@ -1539,17 +1547,14 @@ def calcular_metricas_laudo(cliente):
         tentativas_dia_total = 0
         conexoes_dia_min = 0
         conexoes_dia_max = 0
-        # Pacientes atendidos/dia aplicam Mini-NPS pedindo 5 indicações -> média conservadora de 1.5 indicações reais/paciente
         atendimentos_base_dia = max(2, math.ceil(max(vendas_atuais_dec, 1) / dias_uteis))
         indicacoes_dia = max(3, math.ceil(atendimentos_base_dia * 1.5))
-        # Total de contatos novos necessários/dia (3 contatos para 1 avaliação), abatendo o que já vem das indicações
         contatos_totais_clinica_dia = max(5, oportunidades_dia * 3) if oportunidades_dia > 0 else 5
         leads_receptivos_dia = max(2, contatos_totais_clinica_dia - indicacoes_dia)
         recall_dia = max(12, math.ceil((vendas_recorrentes_dec * 1.5) / dias_uteis))
         esforco_por_vendedor = math.ceil((leads_receptivos_dia + recall_dia) / qtd_vendedores)
         alerta_capacidade = esforco_por_vendedor > 70
     else:
-        # Varejo/Comércio: operação de loja e WhatsApp sem cálculo por vendedor
         tentativas_dia_total = 0
         conexoes_dia_min = 0
         conexoes_dia_max = 0
@@ -1566,7 +1571,7 @@ def calcular_metricas_laudo(cliente):
     vendas_pe_pos_corte = math.ceil(pe_pos_corte / tm) if tm > 0 else 0
     pct_deficit_fixo = (abs(lucro_atual) / cliente['fixo'] * 100) if (lucro_atual < 0 and cliente['fixo'] > 0) else 0.0
 
-    # Radar de Pontos Cegos vs Controlados (em linguagem do dia a dia)
+    # Radar de Pontos Cegos vs Controlados
     radar = []
     qtd_cegas = 0
 
@@ -1932,13 +1937,16 @@ def baixar_pdf(cnpj):
             self.set_y(49)
 
         def footer(self):
-            self.set_y(-14)
-            self.set_font('helvetica', '', 8)
-            self.set_text_color(130, 140, 134)
-            self.cell(0, 8, f'Doutor Caixa | Inteligência Financeira & Comercial  -  Página {self.page_no()}', align='C')
+            self.set_y(-16)
+            self.set_font('helvetica', '', 7.8)
+            self.set_text_color(120, 130, 124)
+            self.cell(0, 4.5, pdf_safe(f'Doutor Caixa | Inteligência Financeira & Comercial  -  Página {self.page_no()}'), ln=1, align='C')
+            self.set_font('helvetica', '', 7.2)
+            self.set_text_color(140, 150, 144)
+            self.cell(0, 4.2, pdf_safe('Doutor Caixa é uma empresa da MaqTrak - Hub de Soluções em Inteligência de Mercado.'), align='C')
 
     pdf = PDF()
-    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_auto_page_break(auto=True, margin=19)
     pdf.add_page()
 
     def desenhar_card(y_topo, altura, cor_fundo, cor_barra):
@@ -2099,10 +2107,10 @@ def baixar_pdf(cnpj):
     pdf.set_left_margin(12)
     pdf.set_right_margin(12)
 
-    # PÁGINA 2: RADAR DE CONTROLE PERSONALIZADO
+    # PÁGINA 2: RADAR DE CONTROLE PERSONALIZADO + URGÊNCIA & QR CODE WHATSAPP
     pdf.add_page()
     y = pdf.get_y()
-    altura_card_cegas = 98
+    altura_card_cegas = 96
     is_all_ok = m['qtd_cegas'] == 0
 
     pdf.set_fill_color(*((240, 253, 244) if is_all_ok else (255, 245, 245)))
@@ -2112,17 +2120,17 @@ def baixar_pdf(cnpj):
     pdf.set_fill_color(*((0, 200, 83) if is_all_ok else (192, 57, 43)))
     pdf.rect(12, y, 3.5, altura_card_cegas, 'F')
 
-    pdf.set_xy(20, y + 5)
+    pdf.set_xy(20, y + 4.5)
     pdf.set_font('helvetica', 'B', 12)
     pdf.set_text_color(*((15, 46, 28) if is_all_ok else (192, 57, 43)))
     titulo_radar = "RADAR DE CONTROLE: TODOS OS NÚMEROS NA MÃO" if is_all_ok else f"ALERTA: {m['qtd_cegas']} DE 4 NÚMEROS IMPORTANTES ESTÃO NO ESCURO"
-    pdf.cell(172, 6.5, titulo_radar, ln=1)
+    pdf.cell(172, 6.2, titulo_radar, ln=1)
 
     pdf.set_x(20)
-    pdf.set_font('helvetica', '', 9.5)
+    pdf.set_font('helvetica', '', 9.3)
     pdf.set_text_color(50, 50, 50)
-    pdf.multi_cell(172, 5, "Veja quais indicadores você já acompanha e onde o dinheiro pode estar escapando:")
-    pdf.ln(3)
+    pdf.multi_cell(172, 4.8, "Veja quais indicadores você já acompanha e onde o dinheiro pode estar escapando:")
+    pdf.ln(2.5)
 
     for item in m['radar_metricas']:
         y_item = pdf.get_y()
@@ -2142,35 +2150,74 @@ def baixar_pdf(cnpj):
         pdf.set_font('helvetica', '', 8.4)
         pdf.set_text_color(60, 60, 60)
         pdf.cell(165, 4.5, pdf_safe(item['descricao']), ln=1)
-        pdf.set_y(y_item + 15.5)
+        pdf.set_y(y_item + 15.2)
 
     pdf.set_x(20)
-    pdf.set_font('helvetica', 'B', 9.3)
+    pdf.set_font('helvetica', 'B', 9.2)
     pdf.set_text_color(*((15, 46, 28) if is_all_ok else (146, 43, 33)))
     rodape_radar = "Excelente controle dos números. Agora o foco é aumentar vendas e margem." if is_all_ok else "Gerenciar sem esses números faz você perder margem e vendas todos os dias sem notar."
-    pdf.cell(172, 6, rodape_radar, ln=1)
-    pdf.set_y(y + altura_card_cegas + 9)
+    pdf.cell(172, 5.5, rodape_radar, ln=1)
+    pdf.set_y(y + altura_card_cegas + 7)
 
     if is_critical:
         y_cons = pdf.get_y()
-        desenhar_card(y_cons, 24, (253, 238, 217), (211, 84, 0))
-        pdf.set_xy(19, y_cons + 3.5)
-        pdf.set_font('helvetica', 'B', 10)
+        desenhar_card(y_cons, 23, (253, 238, 217), (211, 84, 0))
+        pdf.set_xy(19, y_cons + 3.2)
+        pdf.set_font('helvetica', 'B', 9.8)
         pdf.set_text_color(160, 64, 0)
-        pdf.cell(175, 5.5, "O QUE ACONTECE SE NADA FOR FEITO", ln=1)
+        pdf.cell(175, 5.2, "O QUE ACONTECE SE NADA FOR FEITO", ln=1)
         pdf.set_x(19)
-        pdf.set_font('helvetica', '', 9.1)
+        pdf.set_font('helvetica', '', 8.9)
         pdf.set_text_color(50, 50, 50)
-        pdf.multi_cell(175, 4.8, f"Se essas ações não forem aplicadas agora, o dinheiro em caixa acabará em {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias), obrigando a empresa a buscar empréstimos caros.")
-        pdf.set_y(y_cons + 24 + 10)
+        pdf.multi_cell(175, 4.5, f"Se essas ações não forem aplicadas agora, o dinheiro em caixa acabará em {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias), obrigando a empresa a buscar empréstimos caros.")
+        pdf.set_y(y_cons + 23 + 7)
 
-    y_btn = pdf.get_y()
-    pdf.set_fill_color(37, 211, 102)
-    pdf.set_font('helvetica', 'B', 11.5)
+    # BLOCO DE URGÊNCIA + QR CODE WHATSAPP + TELEFONE DIRETO
+    y_cta = pdf.get_y()
+    altura_cta = 46
+    desenhar_card(y_cta, altura_cta, (15, 46, 28), (0, 200, 83))
+
+    link_wpp = "https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20quero%20ajuda%20para%20aplicar%20o%20plano."
+
+    pdf.set_xy(19, y_cta + 4.0)
+    pdf.set_font('helvetica', 'B', 8.5)
+    pdf.set_text_color(243, 156, 18)
+    pdf.cell(128, 4.5, pdf_safe("CADA DIA SEM AÇÃO CUSTA MARGEM E DINHEIRO NO CAIXA."), ln=1)
+
+    pdf.set_x(19)
+    pdf.set_font('helvetica', 'B', 12)
+    pdf.set_text_color(0, 200, 83)
+    pdf.cell(128, 6.2, pdf_safe("FALE AGORA COM O DOUTOR CAIXA"), ln=1, link=link_wpp)
+
+    pdf.set_x(19)
+    pdf.set_font('helvetica', '', 8.4)
+    pdf.set_text_color(235, 242, 238)
+    pdf.multi_cell(128, 4.3, pdf_safe("Aponte a câmera do seu celular para o QR Code ao lado e fale agora com nossa equipe para destravar seu plano de ação:"))
+
+    # Número do WhatsApp destacado em outro ponto do bloco
+    y_num = y_cta + 31.5
+    pdf.set_fill_color(24, 68, 42)
+    pdf.rect(19, y_num, 88, 9.5, 'F')
+    pdf.set_xy(22, y_num + 2.2)
+    pdf.set_font('helvetica', 'B', 9.5)
     pdf.set_text_color(255, 255, 255)
-    link_wpp = f"https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20quero%20ajuda%20para%20aplicar%20o%20plano."
-    pdf.set_xy(45, y_btn)
-    pdf.cell(120, 13, "FALAR COM O DOUTOR CAIXA NO WHATSAPP", fill=True, align='C', link=link_wpp)
+    pdf.cell(82, 5, pdf_safe("WhatsApp: (81) 9.7909.1165"), link=link_wpp)
+
+    # QR Code à direita
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(154, y_cta + 3.5, 36, 36, 'F')
+    try:
+        pdf.image('static/qrcode_whatsapp.png', x=155, y=y_cta + 4.5, w=34, h=34, link=link_wpp)
+    except Exception:
+        pdf.set_xy(154, y_cta + 18)
+        pdf.set_font('helvetica', 'B', 7)
+        pdf.set_text_color(15, 46, 28)
+        pdf.cell(36, 4, "QR Code WhatsApp", align='C')
+
+    pdf.set_xy(152, y_cta + 40.2)
+    pdf.set_font('helvetica', 'B', 6.8)
+    pdf.set_text_color(200, 220, 208)
+    pdf.cell(40, 3.8, pdf_safe("Escaneie com a câmera"), align='C')
 
     pdf_bytes = bytearray(pdf.output())
     return send_file(io.BytesIO(pdf_bytes), download_name=f"Laudo_Doutor_Caixa_{cnpj}.pdf", as_attachment=True, mimetype='application/pdf')
