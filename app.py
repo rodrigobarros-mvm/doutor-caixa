@@ -51,6 +51,7 @@ def init_sqlite():
             ticket_medio REAL DEFAULT 0,
             vendas_30d INTEGER DEFAULT -1,
             qtd_vendedores INTEGER DEFAULT 1,
+            receita_recorrente REAL DEFAULT 0,
             tem_cac INTEGER DEFAULT 0,
             cac REAL DEFAULT 0,
             tem_ltv INTEGER DEFAULT 0,
@@ -68,7 +69,8 @@ def init_sqlite():
     """)
     for col_sql in [
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN vendas_30d INTEGER DEFAULT -1",
-        "ALTER TABLE clientes_doutor_caixa ADD COLUMN qtd_vendedores INTEGER DEFAULT 1"
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN qtd_vendedores INTEGER DEFAULT 1",
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN receita_recorrente REAL DEFAULT 0"
     ]:
         try:
             c.execute(col_sql)
@@ -177,27 +179,29 @@ def notificar_novo_lead_telegram(dados):
     tm = dados.get("ticket_medio", 0)
     fat = dados.get("fat", 0)
     meta = dados.get("meta_fat", 0)
+    rec = float(dados.get("receita_recorrente", 0))
     v30 = int(dados.get("vendas_30d", -1))
-    vendas_meta = math.ceil(meta / tm) if tm > 0 else 0
+
     if tm > 0:
-        if v30 >= 0:
-            novas_vendas = max(0, vendas_meta - v30)
-            txt_ritmo = f"Vendas últimos 30d: {v30}"
+        if rec > 0:
+            novas_vendas = max(0, math.ceil((meta - rec) / tm))
+        elif v30 >= 0:
+            novas_vendas = max(0, math.ceil(meta / tm) - v30)
         else:
             novas_vendas = max(0, math.ceil((meta - fat) / tm))
-            txt_ritmo = f"Ritmo médio: {fat / tm:.1f} vendas/mês"
     else:
         novas_vendas = 0
-        txt_ritmo = "Ticket não informado"
+
+    txt_rec = f"R$ {format_brl(rec)}/mês" if rec > 0 else "R$ 0,00 (Transacional)"
 
     mensagem = (
         f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
         f"👤 <b>Lead:</b> {html.escape(str(dados.get('nome_pessoa', '')))} ({html.escape(str(dados.get('cargo', '')))})\n"
         f"🏢 <b>Empresa:</b> {html.escape(str(dados.get('nome', '')))} [{dados.get('modelo', '').upper()}]\n"
         f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n\n"
-        f"💰 <b>Fat. Atual:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(dados.get('caixa', 0))}\n"
-        f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket Médio:</b> R$ {format_brl(tm)}\n"
-        f"📈 <b>Comercial:</b> {txt_ritmo} | Gap: +{novas_vendas} vendas/mês ({dados.get('qtd_vendedores', 1)} vend.)\n\n"
+        f"💰 <b>Fat. Médio:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(dados.get('caixa', 0))}\n"
+        f"🔄 <b>Base Recorrente/Retorno:</b> {txt_rec}\n"
+        f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket:</b> R$ {format_brl(tm)} | <b>Gap:</b> +{novas_vendas} novas vendas/mês\n\n"
         f"🟢 <b>Sabe/Controla:</b> {html.escape(txt_controladas)}\n"
         f"🔴 <b>Métricas Cegas:</b> {html.escape(txt_cegas)}\n\n"
         f"🔗 <b>Laudo Pronto:</b>\n"
@@ -252,6 +256,10 @@ def normalizar_cliente(row):
 
     v30_raw = row.get("vendas_30d")
     vendas_30d = int(v30_raw) if v30_raw is not None and str(v30_raw) != "" else -1
+    modelo = row.get("modelo") or "produtos"
+    rec = float(row.get("receita_recorrente") or 0.0)
+    if modelo == "produtos":
+        rec = 0.0
 
     return {
         "cnpj": str(row.get("cnpj", "")),
@@ -261,11 +269,12 @@ def normalizar_cliente(row):
         "fat": float(row.get("fat") or 0.0),
         "fixo": float(row.get("fixo") or 0.0),
         "margem": margem_val,
-        "modelo": row.get("modelo") or "produtos",
+        "modelo": modelo,
         "meta_fat": float(row.get("meta_fat") or (float(row.get("fat") or 0.0) * 1.3)),
         "ticket_medio": float(row.get("ticket_medio") or 0.0),
         "vendas_30d": vendas_30d,
         "qtd_vendedores": max(1, int(row.get("qtd_vendedores") or 1)),
+        "receita_recorrente": rec,
         "tem_cac": bool(row.get("tem_cac", False)),
         "cac": float(row.get("cac") or 0.0),
         "tem_ltv": bool(row.get("tem_ltv", False)),
@@ -314,6 +323,7 @@ def buscar_cliente_db(cnpj_bruto):
             "ticket_medio": 2500.00,
             "vendas_30d": -1,
             "qtd_vendedores": 2,
+            "receita_recorrente": 0.0,
             "tem_cac": False,
             "tem_ltv": False,
             "tem_conversao": True,
@@ -349,16 +359,18 @@ def salvar_cliente_db(registro):
         cur.execute("""
             INSERT OR REPLACE INTO clientes_doutor_caixa (
                 cnpj, nome, ativo, caixa, fat, fixo, margem, modelo, meta_fat,
-                ticket_medio, vendas_30d, qtd_vendedores, tem_cac, cac, tem_ltv, ltv,
-                tem_conversao, taxa_conversao, tem_ciclo, ciclo_financeiro,
-                nome_pessoa, cargo, whatsapp, historico_json, atualizado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ticket_medio, vendas_30d, qtd_vendedores, receita_recorrente,
+                tem_cac, cac, tem_ltv, ltv, tem_conversao, taxa_conversao,
+                tem_ciclo, ciclo_financeiro, nome_pessoa, cargo, whatsapp,
+                historico_json, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             cnpj_limpo, registro["nome"], 1, registro["caixa"], registro["fat"],
             registro["fixo"], registro["margem"], registro["modelo"], registro["meta_fat"],
             registro["ticket_medio"], registro["vendas_30d"], registro["qtd_vendedores"],
-            int(registro["tem_cac"]), registro["cac"], int(registro["tem_ltv"]), registro["ltv"],
-            int(registro["tem_conversao"]), registro["taxa_conversao"], int(registro["tem_ciclo"]),
+            registro["receita_recorrente"], int(registro["tem_cac"]), registro["cac"],
+            int(registro["tem_ltv"]), registro["ltv"], int(registro["tem_conversao"]),
+            registro["taxa_conversao"], int(registro["tem_ciclo"]),
             registro["ciclo_financeiro"], registro["nome_pessoa"], registro["cargo"],
             registro["whatsapp"], registro["historico_json"], registro["atualizado_em"]
         ))
@@ -380,6 +392,7 @@ def salvar_cliente_db(registro):
         "ticket_medio": registro["ticket_medio"],
         "vendas_30d": registro["vendas_30d"],
         "qtd_vendedores": registro["qtd_vendedores"],
+        "receita_recorrente": registro["receita_recorrente"],
         "tem_cac": registro["tem_cac"],
         "cac": registro["cac"],
         "tem_ltv": registro["tem_ltv"],
@@ -441,7 +454,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.2</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.3</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -592,6 +605,9 @@ TEMPLATE_DIAGNOSTICO = r"""
         .wpp-box input { border-color: #f5b041; }
         .wpp-box input:focus { border-color: #d35400; }
 
+        .rec-box { background: #f0fdf4; border: 1.5px solid #a3e4bd; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+        .rec-note { background: #f4f8f6; border: 1px solid #dfece5; border-radius: 8px; padding: 11px 14px; font-size: 12px; color: #4e6156; margin-bottom: 16px; line-height: 1.45; }
+
         .metric-card { background: #f8fbf9; border: 1.5px solid #e1ede6; border-radius: 10px; padding: 14px; margin-bottom: 12px; transition: 0.2s; }
         .metric-card.active { background: #f0fdf4; border-color: #00C853; }
         .metric-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
@@ -670,12 +686,28 @@ TEMPLATE_DIAGNOSTICO = r"""
 
             <div class="field-group">
                 <label>Modelo de Negócio / Operação</label>
-                <select name="modelo" required>
+                <select name="modelo" id="modelo_select" onchange="atualizarCampoRecorrencia()" required>
                     <option value="produtos">Comércio / Varejo / Distribuição (Produtos)</option>
                     <option value="servicos">Clínicas / Consultórios / Serviços por Agenda</option>
-                    <option value="b2b">B2B Consultivo / Venda Complexa / Orçamentos</option>
+                    <option value="b2b">B2B Consultivo / Venda Complexa / Contratos</option>
                     <option value="campo">Prestadores de Serviço de Campo / Manutenção</option>
                 </select>
+            </div>
+
+            <div id="rec_note_varejo" class="rec-note">
+                🛒 <b>Modelo Transacional (Varejo/Comércio):</b> Como vendas pontuais têm retorno passivo inferior a 2%, o sistema considerará <b>0% de receita recorrente garantida</b> no início de cada mês.
+            </div>
+
+            <div id="rec_box_b2b" class="rec-box" style="display: none;">
+                <label>Receita Mensal Já Contratada / Recorrente (R$)</label>
+                <span class="hint">Soma das mensalidades/contratos vigentes ativos hoje (coloque 0 se forem apenas projetos pontuais)</span>
+                <input type="text" name="receita_recorrente_rs" id="input_rec_rs" class="moeda" inputmode="numeric" placeholder="Ex: 20.000,00">
+            </div>
+
+            <div id="rec_box_servicos" class="rec-box" style="display: none;">
+                <label>% do Faturamento vindo de Retorno / Pacientes Recorrentes</label>
+                <span class="hint">Clínicas e serviços recorrentes costumam reter de <b>40% a 80%</b> dos clientes a cada 3 ou 6 meses</span>
+                <input type="number" step="1" min="0" max="100" name="pct_recorrencia" id="input_rec_pct" inputmode="numeric" placeholder="Ex: 50">
             </div>
 
             <div class="section-title">3. Dados Financeiros & Comerciais</div>
@@ -689,7 +721,7 @@ TEMPLATE_DIAGNOSTICO = r"""
 
                 <div class="field-group">
                     <label>Faturamento Mensal Médio (R$)</label>
-                    <span class="hint">Média bruta mensal da operação</span>
+                    <span class="hint">Média bruta mensal total da operação</span>
                     <input type="text" name="fat" class="moeda" inputmode="numeric" placeholder="300.000,00" required>
                 </div>
             </div>
@@ -711,7 +743,7 @@ TEMPLATE_DIAGNOSTICO = r"""
             <div class="row-2">
                 <div class="field-group">
                     <label>Ticket Médio das Vendas (R$)</label>
-                    <span class="hint">Valor médio por venda / pedido fechado</span>
+                    <span class="hint">Valor médio por venda / contrato fechado</span>
                     <input type="text" name="ticket_medio" class="moeda" inputmode="numeric" placeholder="2.500,00" required>
                 </div>
 
@@ -724,8 +756,8 @@ TEMPLATE_DIAGNOSTICO = r"""
 
             <div class="row-2">
                 <div class="field-group">
-                    <label>Vendas Fechadas nos Últimos 30 Dias</label>
-                    <span class="hint">Opcional (coloque <b>0</b> se ficou sem vender)</span>
+                    <label>Novas Vendas Fechadas (Últimos 30d)</label>
+                    <span class="hint">Opcional (coloque <b>0</b> se não fechou nada novo)</span>
                     <input type="number" step="1" min="0" name="vendas_30d" inputmode="numeric" placeholder="Ex: 0, 2, 15...">
                 </div>
 
@@ -816,6 +848,25 @@ TEMPLATE_DIAGNOSTICO = r"""
     </div>
 
     <script>
+        function atualizarCampoRecorrencia() {
+            const mod = document.getElementById('modelo_select').value;
+            const noteVarejo = document.getElementById('rec_note_varejo');
+            const boxB2B = document.getElementById('rec_box_b2b');
+            const boxServ = document.getElementById('rec_box_servicos');
+
+            noteVarejo.style.display = 'none';
+            boxB2B.style.display = 'none';
+            boxServ.style.display = 'none';
+
+            if (mod === 'produtos') {
+                noteVarejo.style.display = 'block';
+            } else if (mod === 'servicos') {
+                boxServ.style.display = 'block';
+            } else {
+                boxB2B.style.display = 'block';
+            }
+        }
+
         function toggleMetrica(key) {
             const chk = document.getElementById('toggle_' + key);
             const box = document.getElementById('box_' + key);
@@ -1017,7 +1068,7 @@ TEMPLATE_DASHBOARD = r"""
         
         <div class="paciente-box">
             <p>Paciente (Empresa): <strong>{{ cliente.nome }}</strong></p>
-            <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong>{% if cliente.ticket_medio > 0 %} | Ticket Médio: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %} | Equipe Comercial: <strong>{{ qtd_vendedores }} vendedor(es)</strong></small>
+            <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong>{% if cliente.ticket_medio > 0 %} | Ticket Médio: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %} | Equipe: <strong>{{ qtd_vendedores }} vendedor(es)</strong></small>
         </div>
 
         <div class="premissas-grid">
@@ -1026,16 +1077,16 @@ TEMPLATE_DASHBOARD = r"""
                 <strong>R$ {{ cliente.fat|format_brl }}</strong>
             </div>
             <div class="prem-item">
+                <span>Base Recorrente</span>
+                <strong>{% if receita_recorrente > 0 %}R$ {{ receita_recorrente|format_brl }}{% else %}R$ 0,00 (0%){% endif %}</strong>
+            </div>
+            <div class="prem-item">
                 <span>Custo Fixo</span>
                 <strong>R$ {{ cliente.fixo|format_brl }}</strong>
             </div>
             <div class="prem-item">
-                <span>Margem Contrib.</span>
-                <strong>{{ "%.1f"|format(margem_pct) }}%</strong>
-            </div>
-            <div class="prem-item">
-                <span>Caixa Atual</span>
-                <strong>R$ {{ cliente.caixa|format_brl }}</strong>
+                <span>Margem / Caixa</span>
+                <strong>{{ "%.0f"|format(margem_pct) }}% / R$ {{ cliente.caixa|format_brl }}</strong>
             </div>
         </div>
 
@@ -1060,7 +1111,12 @@ TEMPLATE_DASHBOARD = r"""
             <div class="card-label">1. Ponto de Equilíbrio (Faturamento Mínimo Mensal)</div>
             <div class="value blue">R$ {{ ponto_equilibrio|format_brl }}</div>
             <div class="explain-box">
-                <b>Por que esse valor?</b> Para pagar seu custo fixo de <b>R$ {{ cliente.fixo|format_brl }}</b> tendo uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sua operação precisa faturar no mínimo <b>R$ {{ ponto_equilibrio|format_brl }}</b> (<code>R$ {{ cliente.fixo|format_brl }} ÷ {{ "%.1f"|format(margem_pct) }}%</code>){% if vendas_pe > 0 %} — o que equivale a <b>{{ vendas_pe }} vendas/mês</b> no ticket médio de R$ {{ cliente.ticket_medio|format_brl }}{% endif %}. Abaixo disso, a operação queima caixa.
+                <b>Por que esse valor?</b> Para pagar seu custo fixo de <b>R$ {{ cliente.fixo|format_brl }}</b> tendo uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sua operação precisa faturar no mínimo <b>R$ {{ ponto_equilibrio|format_brl }}</b> (<code>R$ {{ cliente.fixo|format_brl }} ÷ {{ "%.1f"|format(margem_pct) }}%</code>){% if vendas_pe > 0 %} — equivalente a <b>{{ vendas_pe }} vendas/mês</b>{% endif %}.
+                {% if receita_recorrente > 0 %}
+                <br>🔄 <b>Blindagem da Recorrência:</b> Sua base recorrente/retorno de <b>R$ {{ receita_recorrente|format_brl }}/mês</b> gera <b>R$ {{ margem_recorrente_rs|format_brl }}</b> de margem garantida, cobrindo sozinha <b>{{ "%.0f"|format(cobertura_fixo_rec_pct) }}%</b> do seu custo fixo antes de qualquer venda nova.
+                {% else %}
+                <br>🛒 <b>Regime Transacional (0% contratado):</b> Como o modelo inicia todo mês sem contratos fixos garantidos, 100% do Ponto de Equilíbrio precisa ser conquistado mês a mês.
+                {% endif %}
             </div>
         </div>
         
@@ -1094,22 +1150,21 @@ TEMPLATE_DASHBOARD = r"""
             {% if cliente.ticket_medio > 0 %}
             <div class="engenharia-box">
                 🎯 <strong>Engenharia Reversa Comercial (Ticket Médio R$ {{ cliente.ticket_medio|format_brl }}):</strong><br>
-                {% if vendas_30d_informada %}
-                    {% if vendas_30d == 0 %}
-                        • <span style="color: #c0392b;"><b>Alerta de Estagnação Recente:</b></span> Você informou <b>0 vendas fechadas nos últimos 30 dias</b> (embora sua média mensal informada de R$ {{ cliente.fat|format_brl }} equivalha a <b>{{ vendas_atuais_txt }} vendas/mês</b>).<br>
-                        • Para atingir a meta de <b>R$ {{ meta_fat|format_brl }}</b>, você precisa sair do zero e fechar <b>{{ vendas_meta }} vendas/mês</b>.
-                    {% else %}
-                        • Nos últimos 30 dias você fechou <b>{{ vendas_30d }} venda(s)</b> (ritmo médio pelo faturamento informado: <b>{{ vendas_atuais_txt }} vendas/mês</b>).<br>
-                        • Para atingir <b>R$ {{ meta_fat|format_brl }}</b> (<b>{{ vendas_meta }} vendas/mês</b>), você precisa fechar <b>+{{ novas_vendas }} novas vendas por mês</b>.
-                    {% endif %}
+                {% if receita_recorrente > 0 %}
+                    • <b>Base Recorrente / Retorno Garantido:</b> Você já parte com <b>R$ {{ receita_recorrente|format_brl }}/mês</b> (<b>~{{ vendas_recorrentes_txt }} contratos/retornos</b> ativos na base).<br>
+                    • <b>Gap de Novos Clientes:</b> Para atingir <b>R$ {{ meta_fat|format_brl }}</b> ({{ vendas_meta }} vendas totais), você precisa conquistar <b>R$ {{ receita_nova_necessaria|format_brl }}/mês</b> em novos negócios — ou seja, <b>+{{ novas_vendas }} novos fechamentos por mês</b>{% if vendas_30d_informada %} (nos últimos 30 dias você fechou <b>{{ vendas_30d }}</b> novo(s)){% endif %}.
                 {% else %}
-                    • <b>Ritmo equivalente atual:</b> <b>{{ vendas_atuais_txt }} vendas/mês</b> (calculado dividindo seu faturamento médio informado de R$ {{ cliente.fat|format_brl }} pelo ticket médio de R$ {{ cliente.ticket_medio|format_brl }}).<br>
-                    • Para atingir <b>R$ {{ meta_fat|format_brl }}</b> (<b>{{ vendas_meta }} vendas/mês</b>), você precisa acrescentar <b>+{{ novas_vendas }} vendas por mês</b>.
+                    {% if vendas_30d_informada and vendas_30d == 0 %}
+                        • <span style="color: #c0392b;"><b>Alerta de Estagnação Recente:</b></span> Você informou <b>0 vendas nos últimos 30 dias</b> (embora sua média histórica informada de R$ {{ cliente.fat|format_brl }} equivalha a <b>{{ vendas_atuais_txt }} vendas/mês</b>).<br>
+                        • Para atingir <b>R$ {{ meta_fat|format_brl }}</b> em operação transacional, você precisa fechar <b>{{ vendas_meta }} vendas totais/mês</b> partindo do zero.
+                    {% else %}
+                        • <b>Regime Transacional (Mês inicia zerado):</b> Para faturar <b>R$ {{ meta_fat|format_brl }}</b>, sua operação precisa fechar <b>{{ vendas_meta }} vendas totais/mês</b> (um incremento de <b>+{{ novas_vendas }} vendas/mês</b> sobre o ritmo atual de {{ vendas_atuais_txt }}/mês).
+                    {% endif %}
                 {% endif %}
 
                 {% if cliente.tem_conversao and cliente.taxa_conversao > 0 %}
-                <br>• <b>Funil de Propostas (22 dias úteis):</b> Com taxa de fechamento de <b>{{ cliente.taxa_conversao }}%</b>, o comercial precisa gerar <b>{{ leads_necessarios }} propostas qualificadas/mês</b> (<code>{{ vendas_meta }} vendas ÷ {{ cliente.taxa_conversao }}%</code>), o que dá <b>~{{ propostas_dia }} propostas/dia</b>.
-                <br>• <b>Esforço Diário de Prospecção:</b> Como em média 1 em cada 3 contatos abordados avança para proposta (~33% de qualificação), são necessários <b>{{ contatos_dia_total }} contatos ativos/dia</b> (<b>{{ contatos_por_vendedor }} contatos/dia</b> por vendedor).
+                <br>• <b>Funil de Captação Nova (22 dias úteis):</b> Para fechar os <b>{{ vendas_alvo_funil }} novos contratos/vendas</b> com taxa de conversão de <b>{{ cliente.taxa_conversao }}%</b>, o comercial precisa gerar <b>{{ leads_necessarios }} propostas qualificadas/mês</b> (<code>{{ vendas_alvo_funil }} ÷ {{ cliente.taxa_conversao }}%</code>), o que dá <b>~{{ propostas_dia }} propostas/dia</b>.
+                <br>• <b>Esforço Diário de Prospecção:</b> Considerando 1 proposta a cada 3 contatos abordados (~33% de qualificação), são necessários <b>{{ contatos_dia_total }} contatos ativos/dia</b> (<b>{{ contatos_por_vendedor }} contatos/dia</b> por vendedor).
                 {% endif %}
             </div>
             {% endif %}
@@ -1218,13 +1273,17 @@ TEMPLATE_BLOQUEIO = r"""
 def calcular_metricas_laudo(cliente):
     margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
     fator_margem = margem_pct / 100.0
+    modelo = cliente.get('modelo', 'produtos')
 
     # 0. Cenário Atual
     margem_atual_rs = cliente['fat'] * fator_margem
     lucro_atual = margem_atual_rs - cliente['fixo']
 
-    # 1. Ponto de Equilíbrio
+    # 1. Ponto de Equilíbrio & Cobertura pela Recorrência
     ponto_equilibrio = cliente['fixo'] / fator_margem
+    receita_recorrente = 0.0 if modelo == 'produtos' else float(cliente.get('receita_recorrente') or 0.0)
+    margem_recorrente_rs = receita_recorrente * fator_margem
+    cobertura_fixo_rec_pct = (margem_recorrente_rs / cliente['fixo'] * 100) if (receita_recorrente > 0 and cliente['fixo'] > 0) else 0.0
 
     # 2. Cenário de Estresse (-30%)
     fat_estresse = cliente['fat'] * 0.70
@@ -1242,32 +1301,41 @@ def calcular_metricas_laudo(cliente):
     meta_abaixo_pe = meta_fat < ponto_equilibrio
     diferenca_meta_pe = max(0.0, ponto_equilibrio - meta_fat)
 
-    # 4. Engenharia Reversa Comercial & Funil Diário (22 dias úteis)
+    # 4. Engenharia Reversa Comercial (Separando Base Recorrente vs. Captação Nova)
     tm = cliente.get('ticket_medio', 0.0)
     vendas_30d = int(cliente.get('vendas_30d', -1))
     vendas_30d_informada = vendas_30d >= 0
     qtd_vendedores = max(1, int(cliente.get('qtd_vendedores') or 1))
+    receita_nova_necessaria = max(0.0, meta_fat - receita_recorrente)
 
     if tm > 0:
         vendas_atuais_dec = cliente['fat'] / tm
         vendas_atuais_txt = f"{vendas_atuais_dec:.1f}".replace(".", ",")
+        vendas_recorrentes_dec = receita_recorrente / tm
+        vendas_recorrentes_txt = f"{vendas_recorrentes_dec:.1f}".replace(".", ",")
         vendas_meta = math.ceil(meta_fat / tm)
         vendas_pe = math.ceil(ponto_equilibrio / tm)
-        if vendas_30d_informada:
+
+        if receita_recorrente > 0:
+            novas_vendas = max(0, math.ceil(receita_nova_necessaria / tm))
+            vendas_alvo_funil = novas_vendas
+        elif vendas_30d_informada:
             novas_vendas = max(0, vendas_meta - vendas_30d)
+            vendas_alvo_funil = vendas_meta if vendas_30d == 0 else novas_vendas
         else:
             novas_vendas = max(0, math.ceil((meta_fat - cliente['fat']) / tm))
+            vendas_alvo_funil = vendas_meta
     else:
-        vendas_atuais_dec = 0.0
         vendas_atuais_txt = "0"
+        vendas_recorrentes_txt = "0"
         vendas_meta = 0
         vendas_pe = 0
         novas_vendas = 0
+        vendas_alvo_funil = 0
 
-    leads_necessarios = math.ceil(vendas_meta / (cliente['taxa_conversao'] / 100)) if (cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0 and vendas_meta > 0) else 0
+    leads_necessarios = math.ceil(vendas_alvo_funil / (cliente['taxa_conversao'] / 100)) if (cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0 and vendas_alvo_funil > 0) else 0
     dias_uteis = 22
     propostas_dia = math.ceil(leads_necessarios / dias_uteis) if leads_necessarios > 0 else 0
-    # 1 em cada 3 contatos abordados avança para proposta (~33% de qualificação), piso de 30 contatos/dia
     contatos_dia_total = max(30, propostas_dia * 3) if propostas_dia > 0 else 30
     contatos_por_vendedor = math.ceil(contatos_dia_total / qtd_vendedores)
 
@@ -1367,6 +1435,10 @@ def calcular_metricas_laudo(cliente):
         "meses_runway": meses_runway,
         "dias_runway": dias_runway,
         "ponto_equilibrio": ponto_equilibrio,
+        "receita_recorrente": receita_recorrente,
+        "margem_recorrente_rs": margem_recorrente_rs,
+        "cobertura_fixo_rec_pct": cobertura_fixo_rec_pct,
+        "receita_nova_necessaria": receita_nova_necessaria,
         "meta_fat": meta_fat,
         "crescimento_necessario": crescimento_necessario,
         "margem_meta_rs": margem_meta_rs,
@@ -1376,9 +1448,11 @@ def calcular_metricas_laudo(cliente):
         "vendas_30d": vendas_30d,
         "vendas_30d_informada": vendas_30d_informada,
         "vendas_atuais_txt": vendas_atuais_txt,
+        "vendas_recorrentes_txt": vendas_recorrentes_txt,
         "vendas_meta": vendas_meta,
         "vendas_pe": vendas_pe,
         "novas_vendas": novas_vendas,
+        "vendas_alvo_funil": vendas_alvo_funil,
         "leads_necessarios": leads_necessarios,
         "propostas_dia": propostas_dia,
         "contatos_dia_total": contatos_dia_total,
@@ -1396,13 +1470,24 @@ def calcular_metricas_laudo(cliente):
 def gerar_textos_prescricao(cliente, m):
     modelo = cliente.get('modelo', 'produtos')
     if modelo == 'servicos':
-        foco_canal = "Implantar confirmação ativa e lista de espera automatizada para zerar horários vagos."
+        foco_canal = (
+            f"Divida o comercial em 2 frentes: régua de recall via WhatsApp para garantir os R$ {format_brl(m['receita_recorrente'])}/mês "
+            f"de pacientes recorrentes (CAC zero) e prospecção ativa para captar novos agendamentos."
+        ) if m['receita_recorrente'] > 0 else (
+            "Implante régua de recall (retorno 90/180 dias) para construir uma base recorrente de 40% a 80% e reduzir a dependência de anúncios."
+        )
     elif modelo == 'b2b':
-        foco_canal = "Recuperar orçamentos parados no funil e estruturar prospecção outbound."
+        foco_canal = (
+            "Estruture pacotes de retenção mensal (contratos de 6 a 12 meses) para ampliar a base de MRR e recupere orçamentos parados no funil."
+        )
     elif modelo == 'campo':
-        foco_canal = "Criar esteira de contratos de manutenção preventiva recorrente e roteirização."
+        foco_canal = (
+            "Converta chamados avulsos em contratos de manutenção preventiva recorrente para elevar a previsibilidade mensal."
+        )
     else:
-        foco_canal = "Treinar equipe de balcão/WhatsApp para venda de valor e reativação de base inativa."
+        foco_canal = (
+            "Como o varejo inicia todo mês sem receita contratada, foque em giro rápido, venda casada no balcão/WhatsApp e blindagem da margem."
+        )
 
     # Item 1: Custo Fixo explicado matematicamente
     if m['lucro_atual'] < 0:
@@ -1422,11 +1507,11 @@ def gerar_textos_prescricao(cliente, m):
         item1_tit = "1. EXPANSÃO COM CAIXA BLINDADO: "
         item1_desc = "Utilize a folga de margem atual para reinvestir em canais de aquisição validados sem comprometer o capital de giro."
 
-    # Item 2: Cadência comercial explicada (22 dias úteis -> propostas/dia -> contatos/dia)
+    # Item 2: Cadência comercial explicada
     item2_tit = "2. ROTINA COMERCIAL E META DIÁRIA DE CONTATOS: "
     if m['leads_necessarios'] > 0:
         item2_desc = (
-            f"Para gerar {m['leads_necessarios']} propostas/mês (~{m['propostas_dia']} propostas/dia em 22 dias úteis) e fechar {m['vendas_meta']} vendas "
+            f"Para gerar {m['leads_necessarios']} propostas/mês (~{m['propostas_dia']} propostas/dia em 22 dias úteis) e fechar {m['vendas_alvo_funil']} vendas "
             f"(taxa de {cliente['taxa_conversao']}%), execute {m['contatos_dia_total']} contatos ativos/dia ({m['contatos_por_vendedor']}/dia por vendedor, "
             f"considerando 1 proposta a cada 3 contatos abordados). {foco_canal}"
         )
@@ -1446,7 +1531,7 @@ def gerar_textos_prescricao(cliente, m):
         )
     else:
         item3_tit = "3. ESCALA PARA A META DESEJADA: "
-        txt_v = f" (+{m['novas_vendas']} vendas/mês)" if m['novas_vendas'] > 0 else ""
+        txt_v = f" (+{m['novas_vendas']} novos fechamentos/mês)" if m['novas_vendas'] > 0 else ""
         item3_desc = (
             f"Mantenha a disciplina diária de prospecção para alcançar R$ {format_brl(m['meta_fat'])}/mês{txt_v} "
             f"e elevar o lucro líquido para R$ {format_brl(m['lucro_na_meta'])}/mês."
@@ -1500,6 +1585,16 @@ def diagnostico():
         if margem <= 0:
             margem = 30.0
 
+        modelo = request.form.get('modelo', 'produtos')
+        if modelo == 'produtos':
+            receita_recorrente = 0.0
+        elif modelo == 'servicos':
+            pct_rec = float(str(request.form.get('pct_recorrencia', '0') or 0).replace(',', '.'))
+            pct_rec = max(0.0, min(100.0, pct_rec))
+            receita_recorrente = fat * (pct_rec / 100.0)
+        else:
+            receita_recorrente = parse_brl(request.form.get('receita_recorrente_rs', '0'))
+
         vendas_30d_raw = request.form.get('vendas_30d', '').strip()
         vendas_30d = int(float(vendas_30d_raw)) if vendas_30d_raw != '' else -1
         qtd_vendedores_raw = request.form.get('qtd_vendedores', '1').strip()
@@ -1516,7 +1611,7 @@ def diagnostico():
             "cargo": request.form.get('cargo', '').strip(),
             "whatsapp": "".join(filter(str.isdigit, request.form.get('whatsapp', ''))),
             "nome": request.form.get('nome', 'Empresa Consultada').strip(),
-            "modelo": request.form.get('modelo', 'produtos'),
+            "modelo": modelo,
             "caixa": parse_brl(request.form.get('caixa', '0')),
             "fat": fat,
             "fixo": parse_brl(request.form.get('fixo', '0')),
@@ -1525,6 +1620,7 @@ def diagnostico():
             "meta_fat": parse_brl(request.form.get('meta_fat', str(fat * 1.3))),
             "vendas_30d": vendas_30d,
             "qtd_vendedores": qtd_vendedores,
+            "receita_recorrente": receita_recorrente,
             "tem_cac": tem_cac,
             "cac": parse_brl(request.form.get('cac', '0')) if tem_cac else 0.0,
             "tem_ltv": tem_ltv,
@@ -1616,130 +1712,136 @@ def baixar_pdf(cnpj):
     pdf.set_text_color(15, 46, 28)
     pdf.cell(175, 5.5, pdf_safe(f"PACIENTE (EMPRESA): {cliente['nome']}  |  CNPJ: {format_cnpj(cnpj)}"), ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8.6)
+    pdf.set_font('helvetica', '', 8.5)
     pdf.set_text_color(80, 95, 86)
-    tm_txt = f" | Ticket: R$ {format_brl(cliente['ticket_medio'])}" if cliente['ticket_medio'] > 0 else ""
-    pdf.cell(175, 5, pdf_safe(f"Fat. Médio: R$ {format_brl(cliente['fat'])} | Fixo: R$ {format_brl(cliente['fixo'])} | Margem: {m['margem_pct']:.1f}% | Caixa: R$ {format_brl(cliente['caixa'])}{tm_txt}"), ln=1)
+    rec_txt = f" | Recorrente: R$ {format_brl(m['receita_recorrente'])}" if m['receita_recorrente'] > 0 else " | Transacional (0% rec.)"
+    pdf.cell(175, 5, pdf_safe(f"Fat. Médio: R$ {format_brl(cliente['fat'])} | Fixo: R$ {format_brl(cliente['fixo'])} | Margem: {m['margem_pct']:.1f}% | Caixa: R$ {format_brl(cliente['caixa'])}{rec_txt}"), ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 8.6)
+    pdf.set_font('helvetica', 'B', 8.5)
     pdf.set_text_color(192, 57, 43) if m['lucro_atual'] < 0 else pdf.set_text_color(15, 46, 28)
     pdf.cell(175, 5, pdf_safe(f"Resultado na Média Atual: R$ {format_brl(m['lucro_atual'])}/mês (Margem: R$ {format_brl(m['margem_atual_rs'])} - Fixo: R$ {format_brl(cliente['fixo'])})"), ln=1)
-    pdf.set_y(y + 22 + 4.5)
+    pdf.set_y(y + 22 + 4.2)
 
     # 2. Ponto de Equilíbrio
     y = pdf.get_y()
-    desenhar_card(y, 23, (235, 245, 251), (41, 128, 185))
+    alt_pe = 27 if m['receita_recorrente'] > 0 else 23
+    desenhar_card(y, alt_pe, (235, 245, 251), (41, 128, 185))
     pdf.set_xy(19, y + 2.8)
-    pdf.set_font('helvetica', 'B', 8.6)
+    pdf.set_font('helvetica', 'B', 8.5)
     pdf.set_text_color(93, 109, 126)
     pdf.cell(175, 4.5, "1. PONTO DE EQUILÍBRIO (FATURAMENTO MÍNIMO MENSAL)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 14.5)
+    pdf.set_font('helvetica', 'B', 14)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 6.8, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
+    pdf.cell(175, 6.5, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8.1)
+    pdf.set_font('helvetica', '', 8)
     pdf.set_text_color(60, 70, 75)
     pe_vendas = f" = {m['vendas_pe']} vendas/mês" if m['vendas_pe'] > 0 else ""
-    pdf.cell(175, 4.5, pdf_safe(f"Conta: Custo Fixo (R$ {format_brl(cliente['fixo'])}) / Margem ({m['margem_pct']:.1f}%) = R$ {format_brl(m['ponto_equilibrio'])}{pe_vendas} para empatar."), ln=1)
-    pdf.set_y(y + 23 + 4.5)
+    pdf.cell(175, 4.4, pdf_safe(f"Conta: Custo Fixo (R$ {format_brl(cliente['fixo'])}) / Margem ({m['margem_pct']:.1f}%) = R$ {format_brl(m['ponto_equilibrio'])}{pe_vendas} para empatar."), ln=1)
+    if m['receita_recorrente'] > 0:
+        pdf.set_x(19)
+        pdf.set_font('helvetica', 'B', 8)
+        pdf.set_text_color(15, 46, 28)
+        pdf.cell(175, 4.4, pdf_safe(f"Cobertura Recorrente: Base recorrente de R$ {format_brl(m['receita_recorrente'])} paga {m['cobertura_fixo_rec_pct']:.0f}% do custo fixo."), ln=1)
+    pdf.set_y(y + alt_pe + 4.2)
 
     # 3. Cenário de Estresse
     y = pdf.get_y()
     bg_color = (253, 237, 236) if is_critical else (232, 247, 238)
     bar_color = (192, 57, 43) if is_critical else (0, 200, 83)
     val_color = (192, 57, 43) if is_critical else (15, 46, 28)
-    desenhar_card(y, 25, bg_color, bar_color)
+    desenhar_card(y, 24, bg_color, bar_color)
     pdf.set_xy(19, y + 2.8)
-    pdf.set_font('helvetica', 'B', 8.6)
+    pdf.set_font('helvetica', 'B', 8.5)
     pdf.set_text_color(93, 109, 126)
     pdf.cell(175, 4.5, "2. TESTE DE ESTRESSE (CENÁRIO DE QUEDA DE 30% NAS VENDAS)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 13)
+    pdf.set_font('helvetica', 'B', 12.5)
     pdf.set_text_color(*val_color)
-    pdf.cell(175, 7, f"Fat. Estresse: R$ {format_brl(m['fat_estresse'])}   |   Resultado: R$ {format_brl(m['lucro'])}/mês", ln=1)
+    pdf.cell(175, 6.8, f"Fat. Estresse: R$ {format_brl(m['fat_estresse'])}   |   Resultado: R$ {format_brl(m['lucro'])}/mês", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8.1)
+    pdf.set_font('helvetica', '', 8)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(175, 4.5, pdf_safe(f"Conta: Fat. (-30%) gera R$ {format_brl(m['margem_estresse_rs'])} de margem ({m['margem_pct']:.1f}%) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro'])}."), ln=1)
-    pdf.set_y(y + 25 + 4.5)
+    pdf.cell(175, 4.4, pdf_safe(f"Conta: Fat. (-30%) gera R$ {format_brl(m['margem_estresse_rs'])} de margem ({m['margem_pct']:.1f}%) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro'])}."), ln=1)
+    pdf.set_y(y + 24 + 4.2)
 
     # 4. Projeção na Meta + Engenharia Reversa
     y = pdf.get_y()
-    alt_meta = 35 if cliente['ticket_medio'] > 0 else 24
+    alt_meta = 34 if cliente['ticket_medio'] > 0 else 24
     desenhar_card(y, alt_meta, (235, 245, 251), (41, 128, 185))
     pdf.set_xy(19, y + 2.8)
-    pdf.set_font('helvetica', 'B', 8.6)
+    pdf.set_font('helvetica', 'B', 8.5)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.5, f"3. PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
+    pdf.cell(175, 4.4, f"3. PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 11)
+    pdf.set_font('helvetica', 'B', 10.8)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 6.2, f"Crescimento: +{m['crescimento_necessario']:.1f}%  |  Resultado Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}/mês", ln=1)
+    pdf.cell(175, 6, f"Crescimento: +{m['crescimento_necessario']:.1f}%  |  Resultado Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}/mês", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8)
+    pdf.set_font('helvetica', '', 7.9)
     pdf.set_text_color(60, 70, 75)
     aviso_pe_pdf = " [ATENÇÃO: Meta abaixo do Ponto de Equilíbrio!]" if m['meta_abaixo_pe'] else ""
-    pdf.cell(175, 4.5, pdf_safe(f"Conta: Margem na meta (R$ {format_brl(m['margem_meta_rs'])}) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro_na_meta'])}.{aviso_pe_pdf}"), ln=1)
+    pdf.cell(175, 4.4, pdf_safe(f"Conta: Margem na meta (R$ {format_brl(m['margem_meta_rs'])}) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro_na_meta'])}.{aviso_pe_pdf}"), ln=1)
     if cliente['ticket_medio'] > 0:
         pdf.set_x(19)
-        pdf.set_font('helvetica', 'B', 8.1)
+        pdf.set_font('helvetica', 'B', 8)
         pdf.set_text_color(27, 79, 114)
-        if m['vendas_30d_informada']:
-            origem_v = f"Vendas últimos 30d: {m['vendas_30d']}"
+        if m['receita_recorrente'] > 0:
+            origem_v = f"Base recorrente: R$ {format_brl(m['receita_recorrente'])} (~{m['vendas_recorrentes_txt']} un.) + {m['novas_vendas']} novos fechamentos/mês"
         else:
-            origem_v = f"Ritmo teórico (Fat/Ticket): {m['vendas_atuais_txt']} vendas/mês"
-        pdf.cell(175, 4.5, pdf_safe(f"Comercial: {origem_v} -> Meta: {m['vendas_meta']} vendas/mês (+{m['novas_vendas']} novas vendas/mês)."), ln=1)
+            origem_v = f"Transacional (0% rec.): {m['vendas_meta']} vendas totais/mês (+{m['novas_vendas']} sobre ritmo atual)"
+        pdf.cell(175, 4.4, pdf_safe(f"Comercial: {origem_v}."), ln=1)
         if m['leads_necessarios'] > 0:
             pdf.set_x(19)
-            pdf.cell(175, 4.5, pdf_safe(f"Funil (22 dias úteis): {m['leads_necessarios']} propostas/mês (~{m['propostas_dia']}/dia) -> {m['contatos_dia_total']} contatos/dia ({m['contatos_por_vendedor']}/vendedor)."), ln=1)
-    pdf.set_y(y + alt_meta + 4.5)
+            pdf.cell(175, 4.4, pdf_safe(f"Funil Captação Nova (22 dias úteis): {m['leads_necessarios']} propostas/mês (~{m['propostas_dia']}/dia) -> {m['contatos_dia_total']} contatos/dia ({m['contatos_por_vendedor']}/vendedor)."), ln=1)
+    pdf.set_y(y + alt_meta + 4.2)
 
     # 5. Runway
     y = pdf.get_y()
-    desenhar_card(y, 20, bg_color, bar_color)
-    pdf.set_xy(19, y + 2.8)
-    pdf.set_font('helvetica', 'B', 8.6)
+    desenhar_card(y, 19.5, bg_color, bar_color)
+    pdf.set_xy(19, y + 2.6)
+    pdf.set_font('helvetica', 'B', 8.5)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.5, "4. FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
+    pdf.cell(175, 4.4, "4. FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8.5)
+    pdf.set_font('helvetica', '', 8.4)
     pdf.set_text_color(40, 40, 40)
     if is_critical:
         texto_runway = f"CRÍTICO: Caixa (R$ {format_brl(cliente['caixa'])}) / Queima no estresse (R$ {format_brl(m['lucro_abs'])}/mês) = {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias) de fôlego."
     else:
         texto_runway = f"ESTÁVEL: Mesmo com queda de 30%, a empresa gera lucro e preserva os R$ {format_brl(cliente['caixa'])} em caixa."
-    pdf.multi_cell(175, 4.5, pdf_safe(texto_runway))
-    pdf.set_y(y + 20 + 4.5)
+    pdf.multi_cell(175, 4.4, pdf_safe(texto_runway))
+    pdf.set_y(y + 19.5 + 4.2)
 
     # 6. Prescrição Estratégica Matemática
     itens_prescricao = gerar_textos_prescricao(cliente, m)
 
-    pdf.set_font('helvetica', '', 8.8)
+    pdf.set_font('helvetica', '', 8.6)
     altura_texto_presc = 0
     for tit, desc in itens_prescricao:
         linhas = max(1, math.ceil(pdf.get_string_width(tit + desc) / 172))
-        altura_texto_presc += (linhas * 4.6) + 2.0
-    altura_card_presc = 13 + altura_texto_presc
+        altura_texto_presc += (linhas * 4.5) + 1.8
+    altura_card_presc = 12 + altura_texto_presc
 
     y = pdf.get_y()
     desenhar_card(y, altura_card_presc, (15, 46, 28), (0, 200, 83))
-    pdf.set_xy(19, y + 3.5)
-    pdf.set_font('helvetica', 'B', 10)
+    pdf.set_xy(19, y + 3.2)
+    pdf.set_font('helvetica', 'B', 9.8)
     pdf.set_text_color(0, 200, 83)
-    pdf.cell(175, 5, "PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)", ln=1)
+    pdf.cell(175, 4.8, "PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)", ln=1)
 
     pdf.set_left_margin(19)
     pdf.set_right_margin(16)
-    pdf.set_y(y + 10.5)
+    pdf.set_y(y + 9.8)
     pdf.set_text_color(245, 248, 246)
     for tit, desc in itens_prescricao:
         pdf.set_x(19)
-        pdf.set_font('helvetica', 'B', 8.8)
-        pdf.write(4.6, pdf_safe(tit))
-        pdf.set_font('helvetica', '', 8.8)
-        pdf.write(4.6, pdf_safe(desc + "\n"))
-        pdf.ln(1.8)
+        pdf.set_font('helvetica', 'B', 8.6)
+        pdf.write(4.5, pdf_safe(tit))
+        pdf.set_font('helvetica', '', 8.6)
+        pdf.write(4.5, pdf_safe(desc + "\n"))
+        pdf.ln(1.6)
 
     pdf.set_left_margin(12)
     pdf.set_right_margin(12)
