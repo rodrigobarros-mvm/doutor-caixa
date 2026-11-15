@@ -121,7 +121,7 @@ def disparar_whatsapp_automatico(whatsapp_lead, nome_pessoa, empresa, cnpj_limpo
     primeiro_nome = str(nome_pessoa).strip().split(" ")[0] if nome_pessoa else "Empresário(a)"
     texto = (
         f"Olá, *{primeiro_nome}*! Aqui é o *Doutor Caixa*.\n\n"
-        f"O Laudo Executivo de Resiliência Financeira da *{empresa}* já está pronto.\n\n"
+        f"O Laudo Financeiro e Comercial da *{empresa}* já está pronto.\n\n"
         f"Acesse seu diagnóstico completo e baixe o PDF por este link exclusivo:\n"
         f"https://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
     )
@@ -156,22 +156,22 @@ def notificar_novo_lead_telegram(dados):
     if dados.get("tem_cac"):
         controladas.append(f"CAC: R$ {format_brl(dados['cac'])}")
     else:
-        cegas.append("CAC")
+        cegas.append("Custo por Cliente (CAC)")
 
     if dados.get("tem_ltv"):
         controladas.append(f"LTV: R$ {format_brl(dados['ltv'])}")
     else:
-        cegas.append("LTV")
+        cegas.append("Valor por Cliente (LTV)")
 
     if dados.get("tem_conversao"):
-        controladas.append(f"Conv.: {dados['taxa_conversao']}%")
+        controladas.append(f"Fechamento: {dados['taxa_conversao']}%")
     else:
-        cegas.append("Taxa de Conversão")
+        cegas.append("Taxa de Fechamento")
 
     if dados.get("tem_ciclo"):
-        controladas.append(f"Ciclo Fin.: {dados['ciclo_financeiro']} dias")
+        controladas.append(f"Prazos: {dados['ciclo_financeiro']} dias")
     else:
-        cegas.append("Ciclo Financeiro")
+        cegas.append("Prazo de Pagamento/Recebimento")
 
     txt_controladas = ", ".join(controladas) if controladas else "Nenhuma (100% no escuro)"
     txt_cegas = ", ".join(cegas) if cegas else "Nenhuma (Operação monitorada)"
@@ -192,7 +192,7 @@ def notificar_novo_lead_telegram(dados):
     else:
         novas_vendas = 0
 
-    txt_rec = f"R$ {format_brl(rec)}/mês" if rec > 0 else "R$ 0,00 (Transacional)"
+    txt_rec = f"R$ {format_brl(rec)}/mês" if rec > 0 else "R$ 0,00 (Venda pontual)"
 
     mensagem = (
         f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
@@ -200,10 +200,10 @@ def notificar_novo_lead_telegram(dados):
         f"🏢 <b>Empresa:</b> {html.escape(str(dados.get('nome', '')))} [{dados.get('modelo', '').upper()}]\n"
         f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n\n"
         f"💰 <b>Fat. Médio:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(dados.get('caixa', 0))}\n"
-        f"🔄 <b>Base Recorrente/Retorno:</b> {txt_rec}\n"
-        f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket:</b> R$ {format_brl(tm)} | <b>Gap:</b> +{novas_vendas} novas vendas/mês\n\n"
+        f"🔄 <b>Receita Recorrente/Retorno:</b> {txt_rec}\n"
+        f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket:</b> R$ {format_brl(tm)} | <b>Gap:</b> +{novas_vendas} vendas/mês\n\n"
         f"🟢 <b>Sabe/Controla:</b> {html.escape(txt_controladas)}\n"
-        f"🔴 <b>Métricas Cegas:</b> {html.escape(txt_cegas)}\n\n"
+        f"🔴 <b>Pontos Cegos:</b> {html.escape(txt_cegas)}\n\n"
         f"🔗 <b>Laudo Pronto:</b>\n"
         f"https://doutor-caixa.onrender.com/laudo/{dados.get('cnpj')}"
     )
@@ -260,6 +260,7 @@ def normalizar_cliente(row):
     rec = float(row.get("receita_recorrente") or 0.0)
     if modelo == "produtos":
         rec = 0.0
+        vendas_30d = -1
 
     return {
         "cnpj": str(row.get("cnpj", "")),
@@ -322,12 +323,12 @@ def buscar_cliente_db(cnpj_bruto):
             "meta_fat": 400000.00,
             "ticket_medio": 2500.00,
             "vendas_30d": -1,
-            "qtd_vendedores": 2,
+            "qtd_vendedores": 1,
             "receita_recorrente": 0.0,
             "tem_cac": False,
             "tem_ltv": False,
             "tem_conversao": True,
-            "taxa_conversao": 18.0,
+            "taxa_conversao": 25.0,
             "tem_ciclo": False
         })
     return None
@@ -454,7 +455,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.4</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.5</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -472,7 +473,7 @@ TEMPLATE_HOME = r"""
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doutor Caixa | Inteligência Financeira B2B</title>
+    <title>Doutor Caixa | Diagnóstico Financeiro e Comercial</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
     <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
@@ -504,11 +505,11 @@ TEMPLATE_HOME = r"""
 <body>
     <div class="login-box">
         <img src="/static/logo.png" alt="Doutor Caixa Logo" class="logo">
-        <h1>Teste de Estresse & Resiliência de Caixa</h1>
-        <p class="subtitle">Descubra em 2 minutos quanto tempo sua operação aguenta se as vendas caírem 30% e identifique gargalos ocultos de margem.</p>
+        <h1>Raio-X do Seu Caixa e das Suas Vendas</h1>
+        <p class="subtitle">Descubra em 2 minutos quanto tempo sua empresa aguenta se as vendas caírem 30% e receba um plano prático para vender mais e proteger seu lucro.</p>
         
-        <a href="/diagnostico" class="btn-primary">🚀 Gerar Meu Diagnóstico Gratuito</a>
-        <a href="https://wa.me/5581979091165?text=Olá!%20Vim%20pelo%20Doutor%20Caixa%20e%20gostaria%20de%20fazer%20uma%20triagem%20financeira%20e%20comercial%20com%20um%20especialista." target="_blank" class="btn-wpp-home">💬 Fazer Triagem via WhatsApp</a>
+        <a href="/diagnostico" class="btn-primary">🚀 Fazer Meu Diagnóstico Gratuito</a>
+        <a href="https://wa.me/5581979091165?text=Olá!%20Vim%20pelo%20Doutor%20Caixa%20e%20gostaria%20de%20conversar%20sobre%20o%20caixa%20e%20as%20vendas%20da%20minha%20empresa." target="_blank" class="btn-wpp-home">💬 Falar no WhatsApp</a>
 
         <div class="divider">Já possui laudo?</div>
 
@@ -522,7 +523,7 @@ TEMPLATE_HOME = r"""
         </form>
 
         <div class="footer-seal">
-            🔒 Dados processados sob sigilo comercial (LGPD).<br>
+            🔒 Dados protegidos com sigilo total (LGPD).<br>
             Uma solução de Inteligência Comercial <strong>MaqTrak</strong>.
         </div>
     </div>
@@ -554,12 +555,12 @@ TEMPLATE_SUCESSO = r"""
 </head>
 <body>
     <div class="box">
-        <h1>✅ Diagnóstico Gerado!</h1>
-        <p>Seus dados foram processados e salvos com sucesso na nossa base de inteligência.</p>
+        <h1>✅ Laudo Gerado com Sucesso!</h1>
+        <p>Analisamos todos os números da sua empresa e preparamos o seu plano de ação completo.</p>
         
         <div class="alert-box">
             <strong>Fique atento ao seu WhatsApp!</strong>
-            <span>O link exclusivo para você acessar a plataforma e baixar o seu Laudo Executivo em PDF será enviado em instantes para o número:<br><br><b>{{ whatsapp }}</b></span>
+            <span>O link exclusivo para abrir seu Laudo Financeiro na tela e baixar o PDF será enviado em instantes para:<br><br><b>{{ whatsapp }}</b></span>
         </div>
 
         <a href="/" class="btn">Voltar para a Tela Inicial</a>
@@ -581,20 +582,32 @@ TEMPLATE_DIAGNOSTICO = r"""
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Poppins', sans-serif; background: #E8F7EE; margin: 0; padding: 24px 16px; color: #0F2E1C; }
-        .form-container { max-width: 600px; margin: 0 auto; background: #FFFFFF; padding: 34px 32px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); }
-        .top-bar { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #E8F7EE; padding-bottom: 14px; margin-bottom: 22px; }
+        .form-container { max-width: 600px; margin: 0 auto; background: #FFFFFF; padding: 30px 32px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); }
+        .top-bar { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #E8F7EE; padding-bottom: 14px; margin-bottom: 18px; }
         .logo { max-width: 115px; }
         .back-link { color: #6B7A70; text-decoration: none; font-size: 13px; font-weight: 600; }
         .back-link:hover { color: #0F2E1C; }
+
+        /* Barra de Progresso do Wizard */
+        .wizard-progress { margin-bottom: 22px; }
+        .progress-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: #0F2E1C; margin-bottom: 6px; }
+        .progress-meta span.step-tag { color: #00C853; text-transform: uppercase; letter-spacing: 0.4px; }
+        .progress-track { width: 100%; height: 8px; background: #E8F7EE; border-radius: 99px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 25%; background: #00C853; border-radius: 99px; transition: width 0.35s ease; }
+
+        .step-pane { display: none; animation: fadeInStep 0.28s ease; }
+        .step-pane.active { display: block; }
+        @keyframes fadeInStep {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         h2 { margin: 0 0 6px 0; font-size: 20px; color: #0F2E1C; }
-        .desc { margin: 0 0 22px 0; font-size: 13.5px; color: #6B7A70; line-height: 1.45; }
-        
-        .section-title { font-size: 12px; font-weight: 700; color: #00C853; text-transform: uppercase; letter-spacing: 0.5px; margin: 26px 0 12px 0; border-bottom: 1px solid #eef4f0; padding-bottom: 6px; }
-        .section-sub { font-size: 12px; color: #6B7A70; margin: -6px 0 14px 0; line-height: 1.4; }
+        .desc { margin: 0 0 20px 0; font-size: 13.5px; color: #6B7A70; line-height: 1.45; }
         
         .field-group { margin-bottom: 16px; }
-        label { display: block; font-size: 13px; font-weight: 700; color: #0F2E1C; margin-bottom: 5px; }
-        .hint { display: block; font-size: 11.5px; color: #6B7A70; margin-bottom: 6px; }
+        label { display: block; font-size: 13px; font-weight: 700; color: #0F2E1C; margin-bottom: 4px; }
+        .hint { display: block; font-size: 11.5px; color: #6B7A70; margin-bottom: 6px; line-height: 1.35; }
         input[type="text"], input[type="tel"], input[type="number"], select { width: 100%; padding: 13px 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14.5px; color: #0F2E1C; outline: none; background: #FFFFFF; transition: 0.2s; }
         input:focus, select:focus { border-color: #00C853; }
         .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -624,14 +637,20 @@ TEMPLATE_DIAGNOSTICO = r"""
         .metric-input-box { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed #c8e6d4; }
         .metric-input-box.visible { display: block; }
 
-        .btn-submit { background: #00C853; color: #FFFFFF; padding: 18px; width: 100%; border: none; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 14px; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
-        .btn-submit:hover { background: #00a645; }
+        .nav-buttons { display: flex; gap: 12px; margin-top: 22px; }
+        .btn-prev { background: #f0f5f2; color: #0F2E1C; border: 1.5px solid #cfe0d6; padding: 16px 20px; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; flex: 1; transition: 0.2s; }
+        .btn-prev:hover { background: #e1ece6; }
+        .btn-next { background: #00C853; color: #FFFFFF; border: none; padding: 16px 22px; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 15.5px; font-weight: 700; cursor: pointer; flex: 2; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
+        .btn-next:hover { background: #00a645; }
+
         .sigilo-box { margin-top: 18px; background: #f7faf8; padding: 12px; border-radius: 8px; font-size: 11.5px; color: #6B7A70; text-align: center; }
 
         @media (max-width: 540px) {
             body { background: #FFFFFF; padding: 0; }
-            .form-container { box-shadow: none; border-radius: 0; padding: 22px 16px 36px 16px; max-width: 100%; }
+            .form-container { box-shadow: none; border-radius: 0; padding: 20px 16px 36px 16px; max-width: 100%; }
             .row-2 { grid-template-columns: 1fr; gap: 0; }
+            .nav-buttons { flex-direction: column-reverse; }
+            .btn-prev, .btn-next { width: 100%; flex: none; }
         }
     </style>
 </head>
@@ -639,250 +658,266 @@ TEMPLATE_DIAGNOSTICO = r"""
     <div class="form-container">
         <div class="top-bar">
             <img src="/static/logo.png" alt="Doutor Caixa" class="logo">
-            <a href="/" class="back-link">← Voltar</a>
+            <a href="/" class="back-link">✕ Sair</a>
         </div>
 
-        <h2>Gerar Laudo Executivo</h2>
-        <p class="desc">Insira os números aproximados da sua operação. O cálculo leva menos de 5 segundos.</p>
+        <div class="wizard-progress">
+            <div class="progress-meta">
+                <span class="step-tag" id="step_label_title">Etapa 1 de 4 — Dados da Empresa</span>
+                <span id="step_pct">25%</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progress_fill"></div>
+            </div>
+        </div>
 
-        <form method="POST" action="/diagnostico" onsubmit="return validarForm()">
+        <form method="POST" action="/diagnostico" id="form_diagnostico" onsubmit="return validarEtapa4()">
             
-            <div class="section-title">1. Dados do Solicitante</div>
-            
-            <div class="row-2">
+            <!-- ETAPA 1: DADOS DA EMPRESA -->
+            <div class="step-pane active" id="step_1">
+                <h2>1. Dados da Empresa</h2>
+                <p class="desc">Conte-nos qual é o seu negócio para calibrarmos o diagnóstico ao seu setor.</p>
+
                 <div class="field-group">
-                    <label>Seu Nome</label>
-                    <input type="text" name="nome_pessoa" placeholder="Ex: Rodrigo Barros" required>
+                    <label>Nome da Empresa</label>
+                    <input type="text" name="nome" id="empresa_nome" placeholder="Ex: Distribuidora Recife Ltda">
                 </div>
+
                 <div class="field-group">
-                    <label>Seu Cargo</label>
-                    <select name="cargo" required>
-                        <option value="" disabled selected>Selecione...</option>
-                        <option value="Sócio / CEO / Diretor">Sócio / CEO / Diretor</option>
-                        <option value="Gerente Comercial / Vendas">Gerente Comercial / Vendas</option>
-                        <option value="Gerente Financeiro">Gerente Financeiro</option>
-                        <option value="Outros">Outros</option>
+                    <label>CNPJ Válido (Somente números)</label>
+                    <input type="text" name="cnpj" id="cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+                </div>
+
+                <div class="field-group">
+                    <label>Ramo de Atuação / Modelo de Venda</label>
+                    <select name="modelo" id="modelo_select" onchange="atualizarModeloNegocio()">
+                        <option value="produtos">Comércio / Varejo / Distribuição (Produtos)</option>
+                        <option value="servicos">Clínicas / Consultórios / Serviços por Agenda</option>
+                        <option value="b2b">Consultoria / Serviços B2B / Contratos</option>
+                        <option value="campo">Manutenção / Assistência Técnica / Serviços de Campo</option>
                     </select>
                 </div>
-            </div>
 
-            <div class="wpp-box">
-                <label>Número do WhatsApp</label>
-                <span class="hint-alert">⚠️ Importante: O link de acesso à plataforma para visualizar seu laudo será enviado EXCLUSIVAMENTE para este número.</span>
-                <input type="tel" name="whatsapp" id="whatsapp" placeholder="(81) 99999-9999" required>
-            </div>
-
-            <div class="section-title">2. Dados da Empresa</div>
-
-            <div class="field-group">
-                <label>Nome da Empresa</label>
-                <input type="text" name="nome" placeholder="Ex: Distribuidora Recife Ltda" required>
-            </div>
-
-            <div class="field-group">
-                <label>CNPJ Válido (Somente números)</label>
-                <input type="text" name="cnpj" id="cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00" required>
-            </div>
-
-            <div class="field-group">
-                <label>Modelo de Negócio / Operação</label>
-                <select name="modelo" id="modelo_select" onchange="atualizarCampoRecorrencia()" required>
-                    <option value="produtos">Comércio / Varejo / Distribuição (Produtos)</option>
-                    <option value="servicos">Clínicas / Consultórios / Serviços por Agenda</option>
-                    <option value="b2b">B2B Consultivo / Venda Complexa / Contratos</option>
-                    <option value="campo">Prestadores de Serviço de Campo / Manutenção</option>
-                </select>
-            </div>
-
-            <div id="rec_note_varejo" class="rec-note">
-                🛒 <b>Modelo Transacional (Varejo/Comércio):</b> Como vendas pontuais têm retorno passivo inferior a 2%, o sistema considerará <b>0% de receita recorrente garantida</b> no início de cada mês e calibrará o laudo para <b>venda passiva, fluxo e giro</b>.
-            </div>
-
-            <div id="rec_box_b2b" class="rec-box" style="display: none;">
-                <label>Receita Mensal Já Contratada / Recorrente (R$)</label>
-                <span class="hint">Soma das mensalidades/contratos vigentes ativos hoje (coloque 0 se forem apenas projetos pontuais)</span>
-                <input type="text" name="receita_recorrente_rs" id="input_rec_rs" class="moeda" inputmode="numeric" placeholder="Ex: 20.000,00">
-            </div>
-
-            <div id="rec_box_servicos" class="rec-box" style="display: none;">
-                <label>% do Faturamento vindo de Retorno / Pacientes Recorrentes</label>
-                <span class="hint">Clínicas e serviços recorrentes costumam reter de <b>40% a 80%</b> dos clientes a cada 3 ou 6 meses</span>
-                <input type="number" step="1" min="0" max="100" name="pct_recorrencia" id="input_rec_pct" inputmode="numeric" placeholder="Ex: 50">
-            </div>
-
-            <div class="section-title">3. Dados Financeiros & Comerciais</div>
-
-            <div class="row-2">
-                <div class="field-group">
-                    <label>Saldo em Caixa Atual (R$)</label>
-                    <span class="hint">Capital de giro disponível hoje</span>
-                    <input type="text" name="caixa" class="moeda" inputmode="numeric" placeholder="120.000,00" required>
+                <div id="rec_note_varejo" class="rec-note">
+                    🛒 <b>Comércio e Varejo:</b> Como cada mês começa sem contratos fixos garantidos, nosso cálculo vai focar em <b>giro de estoque, movimento diário de loja/WhatsApp e proteção da margem</b>.
                 </div>
 
-                <div class="field-group">
-                    <label>Faturamento Mensal Médio (R$)</label>
-                    <span class="hint">Média bruta mensal total da operação</span>
-                    <input type="text" name="fat" class="moeda" inputmode="numeric" placeholder="300.000,00" required>
+                <div id="rec_box_b2b" class="rec-box" style="display: none;">
+                    <label>Receita Mensal Já Garantida em Contratos (R$)</label>
+                    <span class="hint">Soma das mensalidades ativas hoje (coloque 0 se você vende apenas projetos avulsos)</span>
+                    <input type="text" name="receita_recorrente_rs" id="input_rec_rs" class="moeda" inputmode="numeric" placeholder="Ex: 20.000,00">
+                </div>
+
+                <div id="rec_box_servicos" class="rec-box" style="display: none;">
+                    <label>% do Faturamento vindo de Retorno de Pacientes/Clientes</label>
+                    <span class="hint">Clínicas e serviços recorrentes costumam ter de <b>40% a 80%</b> dos clientes retornando a cada 3 ou 6 meses</span>
+                    <input type="number" step="1" min="0" max="100" name="pct_recorrencia" id="input_rec_pct" inputmode="numeric" placeholder="Ex: 50">
+                </div>
+
+                <div class="nav-buttons">
+                    <button type="button" class="btn-next" onclick="irParaEtapa(2)">Avançar →</button>
                 </div>
             </div>
 
-            <div class="row-2">
-                <div class="field-group">
-                    <label>Custo Fixo Mensal (R$)</label>
-                    <span class="hint">Folha, aluguel, estrutura</span>
-                    <input type="text" name="fixo" class="moeda" inputmode="numeric" placeholder="95.000,00" required>
-                </div>
+            <!-- ETAPA 2: DADOS FINANCEIROS & COMERCIAIS -->
+            <div class="step-pane" id="step_2">
+                <h2>2. Dados Financeiros & Comerciais</h2>
+                <p class="desc">Use valores aproximados da sua média mensal. Não precisa ser exato nos centavos.</p>
 
-                <div class="field-group">
-                    <label>Margem de Contribuição (%)</label>
-                    <span class="hint">O que sobra pós-custo direto <b>(antes do Lucro Líquido)</b></span>
-                    <input type="number" step="0.1" min="1" max="100" name="margem" inputmode="decimal" placeholder="Ex: 38" required>
-                </div>
-            </div>
-
-            <div class="row-2">
-                <div class="field-group">
-                    <label>Ticket Médio das Vendas (R$)</label>
-                    <span class="hint">Valor médio por venda / contrato fechado</span>
-                    <input type="text" name="ticket_medio" class="moeda" inputmode="numeric" placeholder="2.500,00" required>
-                </div>
-
-                <div class="field-group">
-                    <label>Meta de Faturamento Mensal (R$)</label>
-                    <span class="hint">Onde você quer levar o faturamento</span>
-                    <input type="text" name="meta_fat" class="moeda" inputmode="numeric" placeholder="450.000,00" required>
-                </div>
-            </div>
-
-            <div class="row-2">
-                <div class="field-group">
-                    <label>Novas Vendas Fechadas (Últimos 30d)</label>
-                    <span class="hint">Opcional (coloque <b>0</b> se não fechou nada novo)</span>
-                    <input type="number" step="1" min="0" name="vendas_30d" inputmode="numeric" placeholder="Ex: 0, 2, 15...">
-                </div>
-
-                <div class="field-group">
-                    <label>Vendedores / Atendentes Ativos</label>
-                    <span class="hint">Quantas pessoas vendem/atendem hoje</span>
-                    <input type="number" step="1" min="1" name="qtd_vendedores" inputmode="numeric" value="1" required>
-                </div>
-            </div>
-
-            <div class="section-title">4. Radar de Indicadores (Métricas Cegas)</div>
-            <p class="section-sub">Ative a chave <b>apenas</b> para os indicadores que você realmente mede e tem certeza do número hoje. Se não souber, deixe desligado.</p>
-
-            <div class="metric-card" id="card_cac">
-                <label class="metric-header" for="toggle_cac">
-                    <div class="metric-info">
-                        <strong>Sei meu CAC (Custo de Aquisição por Cliente)</strong>
-                        <span>Quanto você investe em marketing + vendas para conquistar 1 cliente</span>
+                <div class="row-2">
+                    <div class="field-group">
+                        <label>Dinheiro em Caixa Hoje (R$)</label>
+                        <span class="hint">Saldo disponível na conta + espécie</span>
+                        <input type="text" name="caixa" id="inp_caixa" class="moeda" inputmode="numeric" placeholder="120.000,00">
                     </div>
-                    <div class="switch">
-                        <input type="checkbox" id="toggle_cac" name="tem_cac" onchange="toggleMetrica('cac')">
-                        <span class="slider"></span>
+
+                    <div class="field-group">
+                        <label>Faturamento Médio Mensal (R$)</label>
+                        <span class="hint">Total que entra de vendas por mês</span>
+                        <input type="text" name="fat" id="inp_fat" class="moeda" inputmode="numeric" placeholder="300.000,00">
                     </div>
-                </label>
-                <div class="metric-input-box" id="box_cac">
-                    <label>Informe seu CAC atual (R$)</label>
-                    <input type="text" name="cac" id="input_cac" class="moeda" inputmode="numeric" placeholder="Ex: 350,00">
+                </div>
+
+                <div class="row-2">
+                    <div class="field-group">
+                        <label>Despesas Fixas Mensais (R$)</label>
+                        <span class="hint">Aluguel, folha, energia, sistemas</span>
+                        <input type="text" name="fixo" id="inp_fixo" class="moeda" inputmode="numeric" placeholder="95.000,00">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Margem que Sobra por Venda (%)</label>
+                        <span class="hint">O que sobra após pagar produto/imposto/comissão</span>
+                        <input type="number" step="0.1" min="1" max="100" name="margem" id="inp_margem" inputmode="decimal" placeholder="Ex: 38">
+                    </div>
+                </div>
+
+                <div class="row-2">
+                    <div class="field-group">
+                        <label>Valor Médio por Venda (R$)</label>
+                        <span class="hint">Ticket médio de cada venda ou contrato</span>
+                        <input type="text" name="ticket_medio" id="inp_ticket" class="moeda" inputmode="numeric" placeholder="2.500,00">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Meta de Faturamento Mensal (R$)</label>
+                        <span class="hint">Quanto você quer faturar por mês</span>
+                        <input type="text" name="meta_fat" id="inp_meta" class="moeda" inputmode="numeric" placeholder="450.000,00">
+                    </div>
+                </div>
+
+                <div class="row-2" id="box_equipe_vendas">
+                    <div class="field-group">
+                        <label>Novas Vendas nos Últimos 30 Dias</label>
+                        <span class="hint">Opcional (coloque <b>0</b> se não fechou nada novo)</span>
+                        <input type="number" step="1" min="0" name="vendas_30d" id="inp_vendas_30d" inputmode="numeric" placeholder="Ex: 0, 2, 15...">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Pessoas na Equipe Comercial</label>
+                        <span class="hint">Quantas pessoas atendem ou vendem hoje</span>
+                        <input type="number" step="1" min="1" name="qtd_vendedores" id="inp_vendedores" inputmode="numeric" value="1">
+                    </div>
+                </div>
+
+                <div class="nav-buttons">
+                    <button type="button" class="btn-prev" onclick="irParaEtapa(1)">← Voltar</button>
+                    <button type="button" class="btn-next" onclick="irParaEtapa(3)">Avançar →</button>
                 </div>
             </div>
 
-            <div class="metric-card" id="card_ltv">
-                <label class="metric-header" for="toggle_ltv">
-                    <div class="metric-info">
-                        <strong>Sei meu LTV (Lifetime Value)</strong>
-                        <span>Quanto cada cliente deixa de receita ao longo de todo o relacionamento</span>
+            <!-- ETAPA 3: RADAR DE INDICADORES (MÉTRICAS CEGAS) -->
+            <div class="step-pane" id="step_3">
+                <h2>3. Radar de Indicadores</h2>
+                <p class="desc">Ative a chave <b>apenas</b> para os números que você realmente acompanha hoje. Se não souber, deixe desligado — isso ajuda a identificar pontos cegos.</p>
+
+                <div class="metric-card" id="card_cac">
+                    <label class="metric-header" for="toggle_cac">
+                        <div class="metric-info">
+                            <strong>Sei quanto custa trazer 1 cliente novo (CAC)</strong>
+                            <span>Total gasto com anúncios e vendas dividido pelos novos clientes</span>
+                        </div>
+                        <div class="switch">
+                            <input type="checkbox" id="toggle_cac" name="tem_cac" onchange="toggleMetrica('cac')">
+                            <span class="slider"></span>
+                        </div>
+                    </label>
+                    <div class="metric-input-box" id="box_cac">
+                        <label>Custo médio por cliente conquistado (R$)</label>
+                        <input type="text" name="cac" id="input_cac" class="moeda" inputmode="numeric" placeholder="Ex: 350,00">
                     </div>
-                    <div class="switch">
-                        <input type="checkbox" id="toggle_ltv" name="tem_ltv" onchange="toggleMetrica('ltv')">
-                        <span class="slider"></span>
+                </div>
+
+                <div class="metric-card" id="card_ltv">
+                    <label class="metric-header" for="toggle_ltv">
+                        <div class="metric-info">
+                            <strong>Sei quanto cada cliente gasta ao longo do tempo (LTV)</strong>
+                            <span>Soma total que um cliente deixa na empresa enquanto compra de você</span>
+                        </div>
+                        <div class="switch">
+                            <input type="checkbox" id="toggle_ltv" name="tem_ltv" onchange="toggleMetrica('ltv')">
+                            <span class="slider"></span>
+                        </div>
+                    </label>
+                    <div class="metric-input-box" id="box_ltv">
+                        <label>Valor médio total por cliente (R$)</label>
+                        <input type="text" name="ltv" id="input_ltv" class="moeda" inputmode="numeric" placeholder="Ex: 4.800,00">
                     </div>
-                </label>
-                <div class="metric-input-box" id="box_ltv">
-                    <label>Informe seu LTV médio (R$)</label>
-                    <input type="text" name="ltv" id="input_ltv" class="moeda" inputmode="numeric" placeholder="Ex: 4.800,00">
+                </div>
+
+                <div class="metric-card" id="card_conv">
+                    <label class="metric-header" for="toggle_conv">
+                        <div class="metric-info">
+                            <strong>Sei quantos orçamentos viram venda (%)</strong>
+                            <span>De cada 100 pessoas atendidas ou orçadas, quantas fecham</span>
+                        </div>
+                        <div class="switch">
+                            <input type="checkbox" id="toggle_conv" name="tem_conversao" onchange="toggleMetrica('conv')">
+                            <span class="slider"></span>
+                        </div>
+                    </label>
+                    <div class="metric-input-box" id="box_conv">
+                        <label>Percentual de fechamento (%)</label>
+                        <input type="number" step="0.1" min="0.1" max="100" name="taxa_conversao" id="input_conv" inputmode="decimal" placeholder="Ex: 20">
+                    </div>
+                </div>
+
+                <div class="metric-card" id="card_ciclo">
+                    <label class="metric-header" for="toggle_ciclo">
+                        <div class="metric-info">
+                            <strong>Sei o prazo entre pagar fornecedores e receber (Dias)</strong>
+                            <span>Diferença de dias entre o dinheiro sair para compras e voltar nas vendas</span>
+                        </div>
+                        <div class="switch">
+                            <input type="checkbox" id="toggle_ciclo" name="tem_ciclo" onchange="toggleMetrica('ciclo')">
+                            <span class="slider"></span>
+                        </div>
+                    </label>
+                    <div class="metric-input-box" id="box_ciclo">
+                        <label>Diferença de prazo em dias</label>
+                        <input type="number" step="1" name="ciclo_financeiro" id="input_ciclo" inputmode="numeric" placeholder="Ex: 35">
+                    </div>
+                </div>
+
+                <div class="nav-buttons">
+                    <button type="button" class="btn-prev" onclick="irParaEtapa(2)">← Voltar</button>
+                    <button type="button" class="btn-next" onclick="irParaEtapa(4)">Avançar →</button>
                 </div>
             </div>
 
-            <div class="metric-card" id="card_conv">
-                <label class="metric-header" for="toggle_conv">
-                    <div class="metric-info">
-                        <strong>Sei minha Taxa de Conversão Comercial</strong>
-                        <span>Percentual de propostas / atendimentos que viram venda fechada</span>
+            <!-- ETAPA 4: DADOS DO SOLICITANTE -->
+            <div class="step-pane" id="step_4">
+                <h2>4. Dados do Solicitante</h2>
+                <p class="desc">Tudo pronto! Informe seus dados para enviarmos o link exclusivo do seu laudo completo.</p>
+
+                <div class="row-2">
+                    <div class="field-group">
+                        <label>Seu Nome</label>
+                        <input type="text" name="nome_pessoa" id="inp_nome_pessoa" placeholder="Ex: Rodrigo Barros">
                     </div>
-                    <div class="switch">
-                        <input type="checkbox" id="toggle_conv" name="tem_conversao" onchange="toggleMetrica('conv')">
-                        <span class="slider"></span>
+                    <div class="field-group">
+                        <label>Seu Cargo</label>
+                        <select name="cargo" id="inp_cargo">
+                            <option value="" disabled selected>Selecione...</option>
+                            <option value="Sócio / Proprietário / Diretor">Sócio / Proprietário / Diretor</option>
+                            <option value="Gerente Comercial / Vendas">Gerente Comercial / Vendas</option>
+                            <option value="Gerente Financeiro">Gerente Financeiro</option>
+                            <option value="Outros">Outros</option>
+                        </select>
                     </div>
-                </label>
-                <div class="metric-input-box" id="box_conv">
-                    <label>Informe sua Taxa de Conversão (%)</label>
-                    <input type="number" step="0.1" min="0.1" max="100" name="taxa_conversao" id="input_conv" inputmode="decimal" placeholder="Ex: 20">
+                </div>
+
+                <div class="wpp-box">
+                    <label>Seu WhatsApp com DDD</label>
+                    <span class="hint-alert">⚠️ Importante: O link para visualizar seu laudo e baixar o PDF será enviado EXCLUSIVAMENTE para este número.</span>
+                    <input type="tel" name="whatsapp" id="whatsapp" placeholder="(81) 99999-9999">
+                </div>
+
+                <div class="nav-buttons">
+                    <button type="button" class="btn-prev" onclick="irParaEtapa(3)">← Voltar</button>
+                    <button type="submit" class="btn-next">📊 Receber Meu Laudo Financeiro</button>
                 </div>
             </div>
 
-            <div class="metric-card" id="card_ciclo">
-                <label class="metric-header" for="toggle_ciclo">
-                    <div class="metric-info">
-                        <strong>Sei meu Ciclo Financeiro (Prazos)</strong>
-                        <span>Diferença em dias entre pagar fornecedores e receber dos clientes</span>
-                    </div>
-                    <div class="switch">
-                        <input type="checkbox" id="toggle_ciclo" name="tem_ciclo" onchange="toggleMetrica('ciclo')">
-                        <span class="slider"></span>
-                    </div>
-                </label>
-                <div class="metric-input-box" id="box_ciclo">
-                    <label>Informe o Ciclo Financeiro (em dias)</label>
-                    <input type="number" step="1" name="ciclo_financeiro" id="input_ciclo" inputmode="numeric" placeholder="Ex: 35">
-                </div>
-            </div>
-
-            <button type="submit" class="btn-submit">📊 Processar Meus Dados</button>
         </form>
 
         <div class="sigilo-box">
-            🔒 <strong>Sigilo Garantido:</strong> Dados processados sob rigorosos padrões da LGPD.
+            🔒 <strong>Sigilo Garantido:</strong> Seus dados são confidenciais e protegidos pela LGPD.
         </div>
     </div>
 
     <script>
-        function atualizarCampoRecorrencia() {
-            const mod = document.getElementById('modelo_select').value;
-            const noteVarejo = document.getElementById('rec_note_varejo');
-            const boxB2B = document.getElementById('rec_box_b2b');
-            const boxServ = document.getElementById('rec_box_servicos');
+        const titulosEtapas = {
+            1: "Etapa 1 de 4 — Dados da Empresa",
+            2: "Etapa 2 de 4 — Financeiro & Vendas",
+            3: "Etapa 3 de 4 — Radar de Indicadores",
+            4: "Etapa 4 de 4 — Envio do Laudo"
+        };
 
-            noteVarejo.style.display = 'none';
-            boxB2B.style.display = 'none';
-            boxServ.style.display = 'none';
-
-            if (mod === 'produtos') {
-                noteVarejo.style.display = 'block';
-            } else if (mod === 'servicos') {
-                boxServ.style.display = 'block';
-            } else {
-                boxB2B.style.display = 'block';
-            }
-        }
-
-        function toggleMetrica(key) {
-            const chk = document.getElementById('toggle_' + key);
-            const box = document.getElementById('box_' + key);
-            const card = document.getElementById('card_' + key);
-            const inp = document.getElementById('input_' + key);
-            if (chk.checked) {
-                box.classList.add('visible');
-                card.classList.add('active');
-                inp.required = true;
-                inp.focus();
-            } else {
-                box.classList.remove('visible');
-                card.classList.remove('active');
-                inp.required = false;
-                inp.value = '';
-            }
+        function parseMoedaJS(val) {
+            if (!val) return 0;
+            let limpo = val.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '');
+            return parseFloat(limpo) || 0;
         }
 
         function validarCNPJ(cnpj) {
@@ -890,7 +925,7 @@ TEMPLATE_DIAGNOSTICO = r"""
             if(cnpj == '') return false;
             if (cnpj.length != 14) return false;
             if (/^(\d)\1+$/.test(cnpj)) return false;
-            let tamanho = cnpj.length - 2
+            let tamanho = cnpj.length - 2;
             let numeros = cnpj.substring(0,tamanho);
             let digitos = cnpj.substring(tamanho);
             let soma = 0;
@@ -914,24 +949,133 @@ TEMPLATE_DIAGNOSTICO = r"""
             return true;
         }
 
-        function validarForm() {
-            let cnpjInput = document.getElementById('cnpj');
-            if (!validarCNPJ(cnpjInput.value)) {
-                alert("O CNPJ informado é inválido. Por favor, corrija.");
-                cnpjInput.focus();
+        function validarEtapaAtual(etapaAtual) {
+            if (etapaAtual === 1) {
+                let emp = document.getElementById('empresa_nome');
+                if (!emp.value.trim()) {
+                    alert("Por favor, informe o nome da empresa.");
+                    emp.focus();
+                    return false;
+                }
+                let cnpjInput = document.getElementById('cnpj');
+                if (!validarCNPJ(cnpjInput.value)) {
+                    alert("O CNPJ informado é inválido. Por favor, confira os números.");
+                    cnpjInput.focus();
+                    return false;
+                }
+            }
+            if (etapaAtual === 2) {
+                let caixa = document.getElementById('inp_caixa');
+                let fat = document.getElementById('inp_fat');
+                let fixo = document.getElementById('inp_fixo');
+                let margem = document.getElementById('inp_margem');
+                let ticket = document.getElementById('inp_ticket');
+                let meta = document.getElementById('inp_meta');
+
+                if (!caixa.value.trim()) { alert("Informe o dinheiro em caixa hoje."); caixa.focus(); return false; }
+                if (parseMoedaJS(fat.value) <= 0) { alert("Informe o faturamento médio mensal."); fat.focus(); return false; }
+                if (parseMoedaJS(fixo.value) <= 0) { alert("Informe as despesas fixas mensais."); fixo.focus(); return false; }
+                let mVal = parseFloat(margem.value);
+                if (!mVal || mVal <= 0 || mVal > 100) { alert("Informe a margem que sobra por venda (entre 1% e 100%)."); margem.focus(); return false; }
+                if (parseMoedaJS(ticket.value) <= 0) { alert("Informe o valor médio por venda."); ticket.focus(); return false; }
+                if (parseMoedaJS(meta.value) <= 0) { alert("Informe a meta de faturamento mensal."); meta.focus(); return false; }
+            }
+            if (etapaAtual === 3) {
+                const keys = ['cac', 'ltv', 'conv', 'ciclo'];
+                for (let k of keys) {
+                    let chk = document.getElementById('toggle_' + k);
+                    let inp = document.getElementById('input_' + k);
+                    if (chk.checked && !inp.value.trim()) {
+                        alert("Você ativou um indicador. Preencha o valor dele ou desative a chave.");
+                        inp.focus();
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function irParaEtapa(destino) {
+            let ativa = document.querySelector('.step-pane.active');
+            let atual = parseInt(ativa.id.replace('step_', ''));
+
+            if (destino > atual && !validarEtapaAtual(atual)) {
+                return;
+            }
+
+            document.querySelectorAll('.step-pane').forEach(el => el.classList.remove('active'));
+            document.getElementById('step_' + destino).classList.add('active');
+
+            document.getElementById('step_label_title').innerText = titulosEtapas[destino];
+            let pct = destino * 25;
+            document.getElementById('step_pct').innerText = pct + '%';
+            document.getElementById('progress_fill').style.width = pct + '%';
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function validarEtapa4() {
+            let nomeP = document.getElementById('inp_nome_pessoa');
+            let cargo = document.getElementById('inp_cargo');
+            let wppInput = document.getElementById('whatsapp');
+
+            if (!nomeP.value.trim()) {
+                alert("Por favor, informe o seu nome.");
+                nomeP.focus();
                 return false;
             }
-            
-            let wppInput = document.getElementById('whatsapp');
-            let wpp = wppInput.value.replace(/\D/g, ''); 
-            
+            if (!cargo.value) {
+                alert("Por favor, selecione o seu cargo.");
+                cargo.focus();
+                return false;
+            }
+            let wpp = wppInput.value.replace(/\D/g, '');
             let regexCelularBR = /^[1-9]{2}9\d{8}$/;
             if (!regexCelularBR.test(wpp)) {
-                alert("Por favor, insira um número de celular válido com DDD (ex: 81 99999-9999).");
+                alert("Por favor, insira um número de WhatsApp válido com DDD (ex: 81 99999-9999).");
                 wppInput.focus();
                 return false;
             }
             return true;
+        }
+
+        function atualizarModeloNegocio() {
+            const mod = document.getElementById('modelo_select').value;
+            const noteVarejo = document.getElementById('rec_note_varejo');
+            const boxB2B = document.getElementById('rec_box_b2b');
+            const boxServ = document.getElementById('rec_box_servicos');
+            const boxEquipe = document.getElementById('box_equipe_vendas');
+
+            noteVarejo.style.display = 'none';
+            boxB2B.style.display = 'none';
+            boxServ.style.display = 'none';
+
+            if (mod === 'produtos') {
+                noteVarejo.style.display = 'block';
+                boxEquipe.style.display = 'none';
+            } else if (mod === 'servicos') {
+                boxServ.style.display = 'block';
+                boxEquipe.style.display = 'grid';
+            } else {
+                boxB2B.style.display = 'block';
+                boxEquipe.style.display = 'grid';
+            }
+        }
+
+        function toggleMetrica(key) {
+            const chk = document.getElementById('toggle_' + key);
+            const box = document.getElementById('box_' + key);
+            const card = document.getElementById('card_' + key);
+            const inp = document.getElementById('input_' + key);
+            if (chk.checked) {
+                box.classList.add('visible');
+                card.classList.add('active');
+                inp.focus();
+            } else {
+                box.classList.remove('visible');
+                card.classList.remove('active');
+                inp.value = '';
+            }
         }
 
         document.getElementById('cnpj').addEventListener('input', function (e) {
@@ -958,6 +1102,9 @@ TEMPLATE_DIAGNOSTICO = r"""
                 e.target.value = v;
             });
         });
+
+        // Inicializa visibilidade correta ao carregar
+        atualizarModeloNegocio();
     </script>
 </body>
 </html>
@@ -1062,147 +1209,150 @@ TEMPLATE_DASHBOARD = r"""
         <div class="header">
             <img src="/static/logo.png" alt="Doutor Caixa Logo" class="logo">
             <div class="header-titles">
-                <span>Diagnóstico Executivo</span>
-                <h1>Laudo de Resiliência</h1>
+                <span>Diagnóstico Financeiro e Comercial</span>
+                <h1>Laudo da Operação</h1>
             </div>
         </div>
         
         <div class="paciente-box">
-            <p>Paciente (Empresa): <strong>{{ cliente.nome }}</strong></p>
-            <small>CNPJ: {{ cnpj|format_cnpj }} | Motor: <strong>{{ nome_motor_comercial }}</strong>{% if cliente.ticket_medio > 0 %} | Ticket Médio: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %} | Equipe: <strong>{{ qtd_vendedores }}</strong></small>
+            <p>Empresa Analisada: <strong>{{ cliente.nome }}</strong></p>
+            <small>CNPJ: {{ cnpj|format_cnpj }} | Ramo: <strong>{{ nome_motor_comercial }}</strong>{% if cliente.ticket_medio > 0 %} | Valor Médio por Venda: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %}{% if cliente.modelo != 'produtos' %} | Equipe Comercial: <strong>{{ qtd_vendedores }}</strong>{% endif %}</small>
         </div>
 
         <div class="premissas-grid">
             <div class="prem-item">
-                <span>Fat. Médio</span>
+                <span>Faturamento Médio</span>
                 <strong>R$ {{ cliente.fat|format_brl }}</strong>
             </div>
             <div class="prem-item">
-                <span>Base Recorrente</span>
+                <span>Receita Garantida</span>
                 <strong>{% if receita_recorrente > 0 %}R$ {{ receita_recorrente|format_brl }}{% else %}R$ 0,00 (0%){% endif %}</strong>
             </div>
             <div class="prem-item">
-                <span>Custo Fixo</span>
+                <span>Despesa Fixa</span>
                 <strong>R$ {{ cliente.fixo|format_brl }}</strong>
             </div>
             <div class="prem-item">
-                <span>Margem / Caixa</span>
+                <span>Sobra / Caixa Hoje</span>
                 <strong>{{ "%.0f"|format(margem_pct) }}% / R$ {{ cliente.caixa|format_brl }}</strong>
             </div>
         </div>
 
         {% if comparativo %}
         <div class="hist-box">
-            📈 <strong>Evolução vs. Última Consulta ({{ comparativo.data }}):</strong><br>
-            Caixa: <strong>{{ comparativo.diff_caixa }}</strong> | Faturamento: <strong>{{ comparativo.diff_fat }}</strong>
+            📈 <strong>Evolução desde a Última Análise ({{ comparativo.data }}):</strong><br>
+            Dinheiro em Caixa: <strong>{{ comparativo.diff_caixa }}</strong> | Faturamento: <strong>{{ comparativo.diff_fat }}</strong>
         </div>
         {% endif %}
 
         <!-- 0. FOTOGRAFIA ATUAL -->
         <div class="card {% if lucro_atual < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">0. Resultado Líquido na Média Atual</div>
+            <div class="card-label">0. Resultado Atual (Quanto Sobra ou Falta Hoje por Mês)</div>
             <div class="value {% if lucro_atual < 0 %}red{% endif %}">R$ {{ lucro_atual|format_brl }} / mês</div>
             <div class="explain-box">
-                <b>Como chegamos nesse número:</b> Com faturamento médio de <b>R$ {{ cliente.fat|format_brl }}</b> e margem de contribuição de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sobram <b>R$ {{ margem_atual_rs|format_brl }}</b> para pagar os <b>R$ {{ cliente.fixo|format_brl }}</b> de custo fixo (<code>R$ {{ margem_atual_rs|format_brl }} - R$ {{ cliente.fixo|format_brl }} = R$ {{ lucro_atual|format_brl }}</code>).
+                <b>Entenda a conta:</b> Com faturamento médio de <b>R$ {{ cliente.fat|format_brl }}</b> e margem de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sobram <b>R$ {{ margem_atual_rs|format_brl }}</b> depois dos custos diretos. Pagando a despesa fixa de <b>R$ {{ cliente.fixo|format_brl }}</b>, o resultado mensal da empresa hoje é de <b>R$ {{ lucro_atual|format_brl }}</b>.
             </div>
         </div>
         
         <!-- 1. PONTO DE EQUILÍBRIO -->
         <div class="card alert-blue">
-            <div class="card-label">1. Ponto de Equilíbrio (Faturamento Mínimo Mensal)</div>
-            <div class="value blue">R$ {{ ponto_equilibrio|format_brl }}</div>
+            <div class="card-label">1. Faturamento Mínimo para Empatar (Ponto de Equilíbrio)</div>
+            <div class="value blue">R$ {{ ponto_equilibrio|format_brl }} / mês</div>
             <div class="explain-box">
-                <b>Por que esse valor?</b> Para pagar seu custo fixo de <b>R$ {{ cliente.fixo|format_brl }}</b> tendo uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sua operação precisa faturar no mínimo <b>R$ {{ ponto_equilibrio|format_brl }}</b> (<code>R$ {{ cliente.fixo|format_brl }} ÷ {{ "%.1f"|format(margem_pct) }}%</code>){% if vendas_pe > 0 %} — equivalente a <b>{{ vendas_pe }} vendas/mês</b>{% endif %}.
+                <b>Por que esse valor?</b> Para pagar os <b>R$ {{ cliente.fixo|format_brl }}</b> de despesa fixa com uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b> por venda, você precisa faturar pelo menos <b>R$ {{ ponto_equilibrio|format_brl }}</b> por mês{% if vendas_pe > 0 %} (cerca de <b>{{ vendas_pe }} vendas/mês</b>){% endif %}. Abaixo disso, a empresa tira dinheiro do caixa para pagar as contas.
                 {% if receita_recorrente > 0 %}
-                <br>🔄 <b>Blindagem da Recorrência:</b> Sua base recorrente/retorno de <b>R$ {{ receita_recorrente|format_brl }}/mês</b> gera <b>R$ {{ margem_recorrente_rs|format_brl }}</b> de margem garantida, cobrindo sozinha <b>{{ "%.0f"|format(cobertura_fixo_rec_pct) }}%</b> do seu custo fixo antes de qualquer venda nova.
+                <br>🔄 <b>Ajuda dos Contratos/Retornos:</b> Sua receita recorrente de <b>R$ {{ receita_recorrente|format_brl }}/mês</b> deixa <b>R$ {{ margem_recorrente_rs|format_brl }}</b> de sobra garantida e paga sozinha <b>{{ "%.0f"|format(cobertura_fixo_rec_pct) }}%</b> das despesas fixas antes mesmo de você fechar uma venda nova.
                 {% else %}
-                <br>🛒 <b>Regime Transacional (0% contratado):</b> Como o modelo inicia todo mês sem contratos fixos garantidos, 100% do Ponto de Equilíbrio precisa ser conquistado mês a mês.
+                <br>🛒 <b>Venda Mês a Mês (0% garantido):</b> Como o negócio começa todo mês com o caixa de pedidos zerado, 100% desse valor precisa ser conquistado nas vendas do mês.
                 {% endif %}
             </div>
         </div>
         
         <!-- 2. CENÁRIO DE ESTRESSE (-30%) -->
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">2. Teste de Estresse (Queda de 30% nas Vendas)</div>
+            <div class="card-label">2. Teste de Crise (Se as Vendas Caírem 30%)</div>
             <div class="value {% if lucro < 0 %}red{% endif %}">
-                Fat.: R$ {{ fat_estresse|format_brl }} &nbsp;|&nbsp; Resultado: R$ {{ lucro|format_brl }}
+                Vendas: R$ {{ fat_estresse|format_brl }} &nbsp;|&nbsp; Resultado: R$ {{ lucro|format_brl }}
             </div>
             <div class="explain-box">
-                <b>Como chegamos nesse número:</b> Se as vendas caírem 30%, o faturamento recua de R$ {{ cliente.fat|format_brl }} para <b>R$ {{ fat_estresse|format_brl }}</b>. Aplicando sua margem de {{ "%.1f"|format(margem_pct) }}%, sobram <b>R$ {{ margem_estresse_rs|format_brl }}</b>. Descontando o custo fixo de R$ {{ cliente.fixo|format_brl }}, o resultado mensal passa a ser <b>R$ {{ lucro|format_brl }}</b> (<code>R$ {{ margem_estresse_rs|format_brl }} - R$ {{ cliente.fixo|format_brl }}</code>).
+                <b>O que acontece na queda:</b> Se o faturamento cair 30%, ele vai de R$ {{ cliente.fat|format_brl }} para <b>R$ {{ fat_estresse|format_brl }}</b>. Com margem de {{ "%.1f"|format(margem_pct) }}%, sobram <b>R$ {{ margem_estresse_rs|format_brl }}</b>. Descontando os R$ {{ cliente.fixo|format_brl }} de despesa fixa, o caixa fecha o mês em <b>R$ {{ lucro|format_brl }}</b>.
             </div>
         </div>
 
         <!-- 3. PROJEÇÃO NA META -->
         <div class="card alert-blue">
-            <div class="card-label">3. Projeção na Meta Desejada (R$ {{ meta_fat|format_brl }})</div>
+            <div class="card-label">3. Plano para Bater Sua Meta (R$ {{ meta_fat|format_brl }}/mês)</div>
             <div class="value blue" style="font-size: 22px;">
-                Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% &nbsp;|&nbsp; Resultado na Meta: <span style="{% if lucro_na_meta < 0 %}color: #c0392b;{% endif %}">R$ {{ lucro_na_meta|format_brl }}</span>
+                Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% &nbsp;|&nbsp; Sobra Líquida na Meta: <span style="{% if lucro_na_meta < 0 %}color: #c0392b;{% endif %}">R$ {{ lucro_na_meta|format_brl }}</span>
             </div>
             <div class="explain-box">
-                <b>Conta da Meta:</b> Faturando <b>R$ {{ meta_fat|format_brl }}</b> com margem de {{ "%.1f"|format(margem_pct) }}%, sua operação gera <b>R$ {{ margem_meta_rs|format_brl }}</b> de margem bruta. Subtraindo o custo fixo de R$ {{ cliente.fixo|format_brl }}, o saldo líquido será de <b>R$ {{ lucro_na_meta|format_brl }}</b>.
+                <b>Resultado na Meta:</b> Faturando <b>R$ {{ meta_fat|format_brl }}</b> com margem de {{ "%.1f"|format(margem_pct) }}%, sobram <b>R$ {{ margem_meta_rs|format_brl }}</b>. Pagando a despesa fixa de R$ {{ cliente.fixo|format_brl }}, o lucro líquido mensal passa a ser <b>R$ {{ lucro_na_meta|format_brl }}</b>.
             </div>
 
             {% if meta_abaixo_pe %}
             <div class="alerta-meta-pe">
-                ⚠️ <b>Alerta de Meta Insuficiente:</b> Mesmo atingindo sua meta de <b>R$ {{ meta_fat|format_brl }}</b>, a empresa ainda fechará com prejuízo de <b>R$ {{ lucro_na_meta|format_brl }}/mês</b>, pois sua meta está <b>R$ {{ diferenca_meta_pe|format_brl }}</b> abaixo do Ponto de Equilíbrio (R$ {{ ponto_equilibrio|format_brl }}).
+                ⚠️ <b>Atenção com a Sua Meta:</b> Mesmo batendo a meta de <b>R$ {{ meta_fat|format_brl }}</b>, a empresa ainda terá prejuízo de <b>R$ {{ lucro_na_meta|format_brl }}/mês</b>, porque a meta está <b>R$ {{ diferenca_meta_pe|format_brl }}</b> abaixo do faturamento mínimo para empatar (R$ {{ ponto_equilibrio|format_brl }}).
             </div>
             {% endif %}
 
             {% if cliente.ticket_medio > 0 %}
             <div class="engenharia-box">
-                🎯 <strong>Engenharia Reversa Comercial (Ticket Médio R$ {{ cliente.ticket_medio|format_brl }}):</strong><br>
+                🎯 <strong>O Que Precisa Acontecer nas Vendas (Ticket Médio R$ {{ cliente.ticket_medio|format_brl }}):</strong><br>
                 {% if receita_recorrente > 0 %}
-                    • <b>Base Recorrente / Retorno Garantido:</b> Você já parte com <b>R$ {{ receita_recorrente|format_brl }}/mês</b> (<b>~{{ vendas_recorrentes_txt }} contratos/retornos</b> ativos na base).<br>
-                    • <b>Gap de Novos Clientes:</b> Para atingir <b>R$ {{ meta_fat|format_brl }}</b> ({{ vendas_meta }} vendas totais), você precisa conquistar <b>R$ {{ receita_nova_necessaria|format_brl }}/mês</b> em novos negócios — ou seja, <b>+{{ novas_vendas }} novos fechamentos/mês</b>{% if vendas_30d_informada %} (nos últimos 30 dias fechou <b>{{ vendas_30d }}</b> novo(s)){% endif %}.
+                    • <b>Base já Garantida:</b> Você já começa o mês com <b>R$ {{ receita_recorrente|format_brl }}/mês</b> (<b>~{{ vendas_recorrentes_txt }} contratos/retornos</b> ativos).<br>
+                    • <b>Vendas Novas Necessárias:</b> Para chegar em <b>R$ {{ meta_fat|format_brl }}</b> ({{ vendas_meta }} vendas no total), falta conquistar <b>R$ {{ receita_nova_necessaria|format_brl }}/mês</b> em novos clientes — ou seja, <b>+{{ novas_vendas }} vendas novas por mês</b>{% if vendas_30d_informada %} (nos últimos 30 dias você fechou <b>{{ vendas_30d }}</b>){% endif %}.
                 {% else %}
-                    {% if vendas_30d_informada and vendas_30d == 0 %}
-                        • <span style="color: #c0392b;"><b>Alerta de Estagnação Recente:</b></span> Você informou <b>0 vendas nos últimos 30 dias</b> (embora sua média histórica de R$ {{ cliente.fat|format_brl }} equivalha a <b>{{ vendas_atuais_txt }} vendas/mês</b>).<br>
-                        • Para atingir <b>R$ {{ meta_fat|format_brl }}</b>, você precisa fechar <b>{{ vendas_meta }} vendas totais/mês</b> partindo do zero.
+                    {% if cliente.modelo != 'produtos' and vendas_30d_informada and vendas_30d == 0 %}
+                        • <span style="color: #c0392b;"><b>Alerta de Vendas Paradas:</b></span> Você informou <b>0 vendas fechadas nos últimos 30 dias</b> (mesmo tendo uma média histórica de R$ {{ cliente.fat|format_brl }}, que daria {{ vendas_atuais_txt }} vendas/mês).<br>
+                        • Para bater <b>R$ {{ meta_fat|format_brl }}</b>, você precisa fechar <b>{{ vendas_meta }} vendas por mês</b> retomando o ritmo do zero.
                     {% else %}
-                        • <b>Regime Transacional (Mês inicia zerado):</b> Para faturar <b>R$ {{ meta_fat|format_brl }}</b>, sua operação precisa fechar <b>{{ vendas_meta }} vendas totais/mês</b> (incremento de <b>+{{ novas_vendas }} vendas/mês</b> sobre o ritmo atual de {{ vendas_atuais_txt }}/mês).
+                        • <b>Meta em Quantidade:</b> Para faturar <b>R$ {{ meta_fat|format_brl }}</b>, a operação precisa realizar <b>{{ vendas_meta }} vendas por mês</b> (um aumento de <b>+{{ novas_vendas }} vendas/mês</b> sobre o ritmo atual de {{ vendas_atuais_txt }}/mês).
                     {% endif %}
                 {% endif %}
 
                 {% if cliente.modelo in ['b2b', 'campo'] %}
-                    <br>• <b>Funil de Propostas ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} contrato(s)</b> com taxa de fechamento de <b>{{ "%.1f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), o comercial precisa gerar <b>{{ oportunidades_mes }} reuniões/propostas qualificadas/mês</b> (~<b>{{ oportunidades_dia }}/dia</b>).
-                    <br>• <b>Matemática do Outbound Diário (~6% ponta a ponta):</b> Para gerar <b>{{ oportunidades_dia }} reunião(ões)/orçamento(s) qualificado(s)/dia</b>, a equipe precisa realizar <b>{{ tentativas_dia_total }} tentativas de prospecção fria/dia</b> ({{ esforco_por_vendedor }}/dia por vendedor) $\rightarrow$ gerando <b>{{ conexoes_dia_min }} a {{ conexoes_dia_max }} conexões reais/dia</b> (20%–30% de atendimento) $\rightarrow$ convertendo 15%–25% delas em reunião/orçamento.
+                    <br>• <b>Orçamentos e Reuniões ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} contrato(s)</b> com taxa de fechamento de <b>{{ "%.0f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), você precisa fazer <b>{{ oportunidades_mes }} reuniões ou orçamentos/mês</b> (<b>~{{ oportunidades_dia }} por dia</b>).
+                    <br>• <b>Rotina Diária de Prospecção:</b> Para conseguir <b>{{ oportunidades_dia }} reunião(ões)/orçamento(s) por dia</b>, a equipe precisa fazer <b>{{ tentativas_dia_total }} ligações/abordagens ativas por dia</b> ({{ esforco_por_vendedor }}/dia por pessoa) $\rightarrow$ gerando <b>{{ conexoes_dia_min }} a {{ conexoes_dia_max }} conversas reais por dia</b> (20% a 30% atendem) $\rightarrow$ transformando parte delas em proposta.
                 {% elif cliente.modelo == 'servicos' %}
-                    <br>• <b>Funil de Agendamentos ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} novos atendimentos/mês</b> com conversão de <b>{{ "%.1f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), você precisa de <b>{{ oportunidades_mes }} avaliações/orçamentos/mês</b> (~<b>{{ oportunidades_dia }}/dia</b>).
-                    <br>• <b>Rotina Híbrida Diária (Passivo + Recall):</b> Exige <b>~{{ leads_receptivos_dia }} leads receptivos/dia</b> (WhatsApp/Instagram/Google) somados a <b>~{{ recall_dia }} contatos diários de recall</b> na base de pacientes vencidos (90/180 dias).
+                    <br>• <b>Avaliações e Orçamentos ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} novos atendimentos/mês</b> com fechamento de <b>{{ "%.0f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), você precisa gerar <b>{{ oportunidades_mes }} avaliações/orçamentos/mês</b> (<b>~{{ oportunidades_dia }} por dia</b>).
+                    <br>• <b>3 Fontes Diárias de Pacientes/Clientes:</b>
+                    <br>&nbsp;&nbsp;1. <b>Indicação Pós-Atendimento (Mini-NPS):</b> Ao finalizar cada consulta/serviço, pergunte se o cliente gostou e peça <b>5 indicações</b>. Com média de 1 a 2 nomes reais por cliente atendido, você gera <b>~{{ indicacoes_dia }} indicações quentes por dia</b> a custo zero;
+                    <br>&nbsp;&nbsp;2. <b>Retorno da Base (WhatsApp):</b> Chame <b>~{{ recall_dia }} clientes antigos por dia</b> (atendidos há 3 ou 6 meses);
+                    <br>&nbsp;&nbsp;3. <b>Novos Interessados (Instagram/Google):</b> Atenda <b>~{{ leads_receptivos_dia }} contatos novos por dia</b> para completar a meta diária.
                 {% else %}
-                    <br>• <b>Funil de Balcão & WhatsApp ({{ dias_uteis }} dias úteis):</b> Para realizar <b>{{ vendas_alvo_funil }} vendas/mês</b> (<b>~{{ vendas_dia_varejo }} vendas/dia</b>) com conversão de <b>{{ "%.1f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), a loja precisa atrair e atender <b>{{ oportunidades_mes }} clientes qualificados/mês</b> — ou seja, <b>{{ oportunidades_dia }} atendimentos/dia</b> ({{ esforco_por_vendedor }}/dia por vendedor).
+                    <br>• <b>Movimento Diário da Loja/WhatsApp ({{ dias_uteis }} dias úteis):</b> Para bater <b>{{ vendas_alvo_funil }} vendas no mês</b> (<b>~{{ vendas_dia_varejo }} vendas por dia</b>) com fechamento de <b>{{ "%.0f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), a loja precisa atrair e atender <b>{{ oportunidades_mes }} clientes interessados/mês</b> — média de <b>{{ oportunidades_dia }} atendimentos qualificados por dia</b> (balcão + WhatsApp).
                 {% endif %}
 
                 {% if alerta_capacidade %}
                 <div class="alerta-capacidade">
-                    ⚠️ <b>Alerta de Capacidade Comercial:</b> A meta exige <b>{{ esforco_por_vendedor }} ações/dia por pessoa</b> (acima do teto produtivo recomendado para 1 profissional). Avalie reforçar a equipe ou apoiar com tráfego pago/automação.
+                    ⚠️ <b>Alerta de Capacidade da Equipe:</b> Esse volume exige <b>{{ esforco_por_vendedor }} contatos/dia por pessoa</b> (acima do limite saudável para 1 profissional). Avalie reforçar o time comercial ou usar anúncios/automação para trazer clientes prontos.
                 </div>
                 {% endif %}
             </div>
             {% endif %}
         </div>
 
-        <!-- 4. RUNWAY DE CAIXA -->
+        <!-- 4. FÔLEGO DO CAIXA -->
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">4. Fôlego Clínico do Caixa (Runway)</div>
+            <div class="card-label">4. Fôlego do Caixa (Quanto Tempo o Dinheiro Aguenta na Crise)</div>
             <div class="value {% if lucro < 0 %}red{% endif %}" style="font-size: 18px;">
                 {% if lucro < 0 %}
-                    🔴 CRÍTICO: Fôlego para {{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias).
+                    🔴 ATENÇÃO: Seu caixa aguenta {{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias).
                 {% else %}
-                    🟢 ESTÁVEL: Caixa blindado e margem segura na crise.
+                    🟢 SEGURO: Seu caixa aguenta a crise sem ficar no vermelho.
                 {% endif %}
             </div>
             <div class="explain-box">
                 {% if lucro < 0 %}
-                    <b>Como chegamos nesse prazo:</b> Dividindo seu saldo em caixa atual (<b>R$ {{ cliente.caixa|format_brl }}</b>) pela queima mensal projetada no cenário de estresse (<b>R$ {{ lucro_abs|format_brl }}/mês</b>), a reserva se esgota em <b>{{ "%.1f"|format(meses_runway) }} meses</b> (<code>R$ {{ cliente.caixa|format_brl }} ÷ R$ {{ lucro_abs|format_brl }}</code>).
+                    <b>Entenda o prazo:</b> Se as vendas caírem 30% e a empresa tiver prejuízo de <b>R$ {{ lucro_abs|format_brl }}/mês</b>, os <b>R$ {{ cliente.caixa|format_brl }}</b> que você tem guardados hoje acabam em <b>{{ "%.1f"|format(meses_runway) }} meses</b> (~{{ dias_runway }} dias).
                 {% else %}
-                    <b>Por que está seguro?</b> Mesmo com queda de 30% nas vendas, sua operação continua gerando lucro de <b>R$ {{ lucro|format_brl }}/mês</b> sem precisar consumir os <b>R$ {{ cliente.caixa|format_brl }}</b> guardados em caixa.
+                    <b>Por que está seguro?</b> Mesmo com queda de 30% nas vendas, a empresa continua dando lucro de <b>R$ {{ lucro|format_brl }}/mês</b> sem precisar gastar os <b>R$ {{ cliente.caixa|format_brl }}</b> guardados no caixa.
                 {% endif %}
             </div>
         </div>
 
         <div class="prescricao-card">
-            <div class="prescricao-title">PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)</div>
+            <div class="prescricao-title">PLANO DE AÇÃO PRÁTICO (O QUE FAZER AGORA?)</div>
             <div class="lista-acoes">
                 {% for item in acao %}
                     <p>{{ item|safe }}</p>
@@ -1212,13 +1362,13 @@ TEMPLATE_DASHBOARD = r"""
 
         <div class="metricas-cegas-card {% if qtd_cegas == 0 %}all-ok{% endif %}">
             {% if qtd_cegas > 0 %}
-                <span class="mc-badge">🚨 {{ qtd_cegas }} de 4 Indicadores Cegos Detectados</span>
-                <h3 class="mc-title">RADAR DE MÉTRICAS: PONTOS CEGOS NA OPERAÇÃO</h3>
-                <p class="mc-intro">Com base no seu preenchimento, mapeamos o nível de controle da sua gestão comercial e financeira:</p>
+                <span class="mc-badge">🚨 {{ qtd_cegas }} de 4 Números no Escuro</span>
+                <h3 class="mc-title">RADAR DE CONTROLE: PONTOS CEGOS DA EMPRESA</h3>
+                <p class="mc-intro">Veja quais indicadores você já controla e onde o dinheiro pode estar escapando sem você perceber:</p>
             {% else %}
-                <span class="mc-badge ok">✅ Alta Maturidade de Gestão</span>
-                <h3 class="mc-title ok">RADAR DE MÉTRICAS: 100% MONITORADO</h3>
-                <p class="mc-intro">Sua operação monitora os 4 indicadores vitais de escala e caixa:</p>
+                <span class="mc-badge ok">✅ Gestão 100% Monitorada</span>
+                <h3 class="mc-title ok">RADAR DE CONTROLE: TODOS OS NÚMEROS NA MÃO</h3>
+                <p class="mc-intro">Parabéns! Sua empresa acompanha os 4 indicadores essenciais de vendas e caixa:</p>
             {% endif %}
 
             <div class="mc-grid">
@@ -1231,20 +1381,20 @@ TEMPLATE_DASHBOARD = r"""
             </div>
 
             {% if qtd_cegas > 0 %}
-                <p class="mc-footer">Pilotar sem esses {{ qtd_cegas }} indicador(es) significa queimar margem todos os dias no escuro.</p>
+                <p class="mc-footer">Gerenciar a empresa sem esses {{ qtd_cegas }} número(s) faz você perder margem e vendas todos os dias no escuro.</p>
             {% endif %}
         </div>
         
         {% if lucro < 0 %}
         <div class="consequencia">
-            <h4>⚠️ CONSEQUÊNCIA DA INAÇÃO</h4>
-            <p>Se as medidas acima não forem aplicadas imediatamente, o capital de giro da empresa será consumido em <strong>{{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias)</strong>, resultando em paralisação operacional ou captação de crédito a juros predatórios.</p>
+            <h4>⚠️ O QUE ACONTECE SE NADA FOR FEITO</h4>
+            <p>Se essas ações não forem colocadas em prática agora, o dinheiro em caixa será consumido em <strong>{{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias)</strong>, obrigando a empresa a pegar empréstimos caros no banco ou travar a operação.</p>
         </div>
         {% endif %}
 
         <div class="botoes">
-            <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome }})%20e%20preciso%20de%20ajuda%20estratégica." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
-            <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo PDF</a>
+            <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome }})%20e%20quero%20ajuda%20para%20aplicar%20o%20plano." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
+            <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo em PDF</a>
             <a href="/" class="btn btn-outline">Nova Consulta</a>
         </div>
     </div>
@@ -1288,10 +1438,10 @@ def calcular_metricas_laudo(cliente):
     modelo = cliente.get('modelo', 'produtos')
 
     nomes_motor = {
-        "b2b": "B2B Outbound & Contratos",
-        "campo": "Serviços de Campo & Preventiva",
-        "servicos": "Clínicas / Agenda (Recall + Passivo)",
-        "produtos": "Varejo / Comércio (Passivo & Giro)"
+        "b2b": "Consultoria / B2B & Contratos",
+        "campo": "Manutenção & Serviços de Campo",
+        "servicos": "Clínicas & Serviços por Agenda",
+        "produtos": "Comércio / Varejo / Distribuição"
     }
     nome_motor_comercial = nomes_motor.get(modelo, modelo.upper())
 
@@ -1321,28 +1471,28 @@ def calcular_metricas_laudo(cliente):
     meta_abaixo_pe = meta_fat < ponto_equilibrio
     diferenca_meta_pe = max(0.0, ponto_equilibrio - meta_fat)
 
-    # 4. Engenharia Reversa Comercial Calibrada por Nicho
+    # 4. Engenharia Reversa Comercial Calibrada por Ramo
     tm = cliente.get('ticket_medio', 0.0)
     vendas_30d = int(cliente.get('vendas_30d', -1))
-    vendas_30d_informada = vendas_30d >= 0
-    qtd_vendedores = max(1, int(cliente.get('qtd_vendedores') or 1))
+    vendas_30d_informada = (modelo != 'produtos') and (vendas_30d >= 0)
+    qtd_vendedores = 1 if modelo == 'produtos' else max(1, int(cliente.get('qtd_vendedores') or 1))
     receita_nova_necessaria = max(0.0, meta_fat - receita_recorrente)
 
     dias_uteis = 25 if modelo == 'produtos' else 22
 
     if cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0:
         taxa_conv_usada = float(cliente['taxa_conversao'])
-        origem_taxa = "taxa real informada"
+        origem_taxa = "sua taxa real"
     else:
         if modelo in ('b2b', 'campo'):
             taxa_conv_usada = 15.0
-            origem_taxa = "benchmark B2B de 15%"
+            origem_taxa = "média de 15% do setor"
         elif modelo == 'servicos':
             taxa_conv_usada = 25.0
-            origem_taxa = "benchmark clínicas de 25%"
+            origem_taxa = "média de 25% em clínicas"
         else:
             taxa_conv_usada = 30.0
-            origem_taxa = "benchmark varejo de 30%"
+            origem_taxa = "média de 30% no varejo"
 
     if tm > 0:
         vendas_atuais_dec = cliente['fat'] / tm
@@ -1362,6 +1512,7 @@ def calcular_metricas_laudo(cliente):
             novas_vendas = max(0, math.ceil((meta_fat - cliente['fat']) / tm))
             vendas_alvo_funil = vendas_meta
     else:
+        vendas_atuais_dec = 0.0
         vendas_atuais_txt = "0"
         vendas_recorrentes_dec = 0.0
         vendas_recorrentes_txt = "0"
@@ -1376,104 +1527,109 @@ def calcular_metricas_laudo(cliente):
 
     # Esforço diário realista por modelo comercial
     if modelo in ('b2b', 'campo'):
-        # Outbound real: ~6% conversão ponta a ponta (~17 tentativas por reunião/proposta), piso operacional 40/dia
         tentativas_dia_total = max(40, oportunidades_dia * 17) if oportunidades_dia > 0 else 40
         conexoes_dia_min = max(1, round(tentativas_dia_total * 0.20))
         conexoes_dia_max = max(2, round(tentativas_dia_total * 0.30))
+        indicacoes_dia = 0
         leads_receptivos_dia = 0
         recall_dia = 0
         esforco_por_vendedor = math.ceil(tentativas_dia_total / qtd_vendedores)
         alerta_capacidade = esforco_por_vendedor > 60
     elif modelo == 'servicos':
-        # Clínicas/Agenda: Leads receptivos (33% viram avaliação) + Recall diário da base
         tentativas_dia_total = 0
         conexoes_dia_min = 0
         conexoes_dia_max = 0
-        leads_receptivos_dia = max(5, oportunidades_dia * 3) if oportunidades_dia > 0 else 5
-        recall_dia = max(15, math.ceil((vendas_recorrentes_dec * 1.5) / dias_uteis))
+        # Pacientes atendidos/dia aplicam Mini-NPS pedindo 5 indicações -> média conservadora de 1.5 indicações reais/paciente
+        atendimentos_base_dia = max(2, math.ceil(max(vendas_atuais_dec, 1) / dias_uteis))
+        indicacoes_dia = max(3, math.ceil(atendimentos_base_dia * 1.5))
+        # Total de contatos novos necessários/dia (3 contatos para 1 avaliação), abatendo o que já vem das indicações
+        contatos_totais_clinica_dia = max(5, oportunidades_dia * 3) if oportunidades_dia > 0 else 5
+        leads_receptivos_dia = max(2, contatos_totais_clinica_dia - indicacoes_dia)
+        recall_dia = max(12, math.ceil((vendas_recorrentes_dec * 1.5) / dias_uteis))
         esforco_por_vendedor = math.ceil((leads_receptivos_dia + recall_dia) / qtd_vendedores)
         alerta_capacidade = esforco_por_vendedor > 70
     else:
-        # Varejo/Comércio: Atendimentos passivos (balcão + WhatsApp)
+        # Varejo/Comércio: operação de loja e WhatsApp sem cálculo por vendedor
         tentativas_dia_total = 0
         conexoes_dia_min = 0
         conexoes_dia_max = 0
+        indicacoes_dia = 0
         leads_receptivos_dia = 0
         recall_dia = 0
-        esforco_por_vendedor = math.ceil(oportunidades_dia / qtd_vendedores) if oportunidades_dia > 0 else 0
-        alerta_capacidade = esforco_por_vendedor > 50
+        esforco_por_vendedor = 0
+        alerta_capacidade = False
 
-    # Cálculos explícitos de corte de custo fixo (15%) e impacto no Ponto de Equilíbrio
+    # Cálculos explícitos de corte de despesa fixa (15%) e impacto no Ponto de Equilíbrio
     corte_15_rs = cliente['fixo'] * 0.15
     fixo_pos_corte = cliente['fixo'] - corte_15_rs
     pe_pos_corte = fixo_pos_corte / fator_margem
     vendas_pe_pos_corte = math.ceil(pe_pos_corte / tm) if tm > 0 else 0
     pct_deficit_fixo = (abs(lucro_atual) / cliente['fixo'] * 100) if (lucro_atual < 0 and cliente['fixo'] > 0) else 0.0
 
-    # Radar de Métricas Cegas vs Controladas
+    # Radar de Pontos Cegos vs Controlados (em linguagem do dia a dia)
     radar = []
     qtd_cegas = 0
 
     if cliente.get('tem_cac'):
         radar.append({
             "controlada": True,
-            "titulo": f"1. CAC Controlado: R$ {format_brl(cliente['cac'])}",
-            "descricao": "Você já mede o custo de aquisição. Próximo passo: otimizar canais de menor CAC."
+            "titulo": f"1. Custo por Cliente Controlado: R$ {format_brl(cliente['cac'])}",
+            "descricao": "Você já sabe quanto investe para trazer 1 cliente novo. Agora foque nos canais que trazem clientes mais baratos."
         })
     else:
         qtd_cegas += 1
         radar.append({
             "controlada": False,
-            "titulo": "1. CAC (Métrica Cega)",
-            "descricao": "Você não sabe quanto custa colocar cada novo cliente para dentro da empresa."
+            "titulo": "1. Custo para Trazer 1 Cliente (No Escuro)",
+            "descricao": "Você não sabe quanto gasta em divulgação e vendas para conquistar cada cliente novo."
         })
 
     if cliente.get('tem_ltv'):
         rel_ltv_cac = ""
         if cliente.get('tem_cac') and cliente.get('cac', 0) > 0:
             ratio = cliente['ltv'] / cliente['cac']
-            rel_ltv_cac = f" (Relação LTV/CAC: {ratio:.1f}x - {'Saudável' if ratio >= 3 else 'Atenção: ideal >= 3x'})."
+            rel_ltv_cac = f" (Retorno de {ratio:.1f}x sobre o custo de aquisição - {'Saudável' if ratio >= 3 else 'Atenção: ideal acima de 3x'})."
         radar.append({
             "controlada": True,
-            "titulo": f"2. LTV Controlado: R$ {format_brl(cliente['ltv'])}",
-            "descricao": f"Receita por cliente mapeada.{rel_ltv_cac}"
+            "titulo": f"2. Gasto Total por Cliente Controlado: R$ {format_brl(cliente['ltv'])}",
+            "descricao": f"Você acompanha quanto cada cliente deixa na empresa.{rel_ltv_cac}"
         })
     else:
         qtd_cegas += 1
         radar.append({
             "controlada": False,
-            "titulo": "2. LTV (Métrica Cega)",
-            "descricao": "Desconhece o lucro real que cada cliente deixa ao longo de todo o relacionamento."
+            "titulo": "2. Quanto Cada Cliente Gasta no Tempo (No Escuro)",
+            "descricao": "Você não mede quanto dinheiro cada cliente deixa na empresa ao voltar para comprar de novo."
         })
 
     if cliente.get('tem_conversao'):
         radar.append({
             "controlada": True,
-            "titulo": f"3. Taxa de Conversão: {cliente['taxa_conversao']}%",
-            "descricao": f"Funil rastreado: ~{oportunidades_mes} oportunidades/mês ({oportunidades_dia}/dia em {dias_uteis} dias úteis)." if oportunidades_mes > 0 else "Taxa de fechamento comercial acompanhada."
+            "titulo": f"3. Taxa de Fechamento Controlada: {cliente['taxa_conversao']}%",
+            "descricao": f"Funil medido: precisa de ~{oportunidades_mes} orçamentos/atendimentos no mês ({oportunidades_dia}/dia)." if oportunidades_mes > 0 else "Você já acompanha quantos orçamentos viram venda."
         })
     else:
         qtd_cegas += 1
         radar.append({
             "controlada": False,
-            "titulo": "3. Taxa de Conversão (Métrica Cega)",
-            "descricao": f"Usamos {origem_taxa} no cálculo. Meça sua taxa real para calibrar o funil."
+            "titulo": "3. Taxa de Fechamento de Vendas (No Escuro)",
+            "descricao": f"Usamos a {origem_taxa} no cálculo. Anote quantos atendimentos viram venda para ter controle real."
         })
 
     if cliente.get('tem_ciclo'):
         dias = cliente['ciclo_financeiro']
-        aviso_ciclo = "Alerta: ciclo longo exige alto capital de giro." if dias > 30 else "Ciclo financeiro sob controle."
+        aviso_ciclo = "Atenção: prazo longo exige mais dinheiro parado no caixa." if dias > 30 else "Prazos de recebimento e pagamento bem equilibrados."
         radar.append({
             "controlada": True,
-            "titulo": f"4. Ciclo Financeiro: {dias} dias",
-            "descricao": f"Prazo médio mapeado. {aviso_ciclo}"
+            "titulo": f"4. Prazo do Dinheiro Controlado: {dias} dias",
+            "descricao": f"Diferença de prazos mapeada. {aviso_ciclo}"
         })
     else:
         qtd_cegas += 1
         radar.append({
             "controlada": False,
-            "titulo": "4. Ciclo Financeiro (Métrica Cega)",
-            "descricao": "Risco de descasamento entre prazos de recebimento e pagamento corroer o caixa."
+            "titulo": "4. Prazo Entre Pagar e Receber (No Escuro)",
+            "descricao": "Risco de vender bem, mas ficar sem dinheiro no caixa por dar prazo longo ao cliente e pagar fornecedor à vista."
         })
 
     comparativo = None
@@ -1531,6 +1687,7 @@ def calcular_metricas_laudo(cliente):
         "tentativas_dia_total": tentativas_dia_total,
         "conexoes_dia_min": conexoes_dia_min,
         "conexoes_dia_max": conexoes_dia_max,
+        "indicacoes_dia": indicacoes_dia,
         "leads_receptivos_dia": leads_receptivos_dia,
         "recall_dia": recall_dia,
         "qtd_vendedores": qtd_vendedores,
@@ -1548,72 +1705,74 @@ def calcular_metricas_laudo(cliente):
 def gerar_textos_prescricao(cliente, m):
     modelo = cliente.get('modelo', 'produtos')
 
-    # Item 1: Custo Fixo explicado matematicamente
+    # Item 1: Corte de Despesa Fixa em linguagem direta
     if m['lucro_atual'] < 0:
-        item1_tit = "1. REESTRUTURAÇÃO IMEDIATA (FÔLEGO DE CAIXA): "
+        item1_tit = "1. CORTE URGENTE DE DESPESAS FIXAS: "
         item1_desc = (
-            f"Seu déficit mensal hoje é de R$ {format_brl(abs(m['lucro_atual']))} ({m['pct_deficit_fixo']:.0f}% do custo fixo). "
-            f"Corte imediatamente 15% dos custos fixos não essenciais (economia de R$ {format_brl(m['corte_15_rs'])}/mês, "
-            f"baixando o fixo de R$ {format_brl(cliente['fixo'])} para R$ {format_brl(m['fixo_pos_corte'])}/mês) para estancar parte da sangria enquanto acelera vendas."
+            f"Hoje a empresa fecha o mês no vermelho em R$ {format_brl(abs(m['lucro_atual']))} ({m['pct_deficit_fixo']:.0f}% da despesa fixa). "
+            f"Corte imediatamente 15% dos gastos fixos não essenciais (economia de R$ {format_brl(m['corte_15_rs'])}/mês, "
+            f"baixando as despesas fixas de R$ {format_brl(cliente['fixo'])} para R$ {format_brl(m['fixo_pos_corte'])}/mês) para aliviar o caixa enquanto aumenta as vendas."
         )
     elif m['lucro'] < 0:
-        item1_tit = "1. PLANO DE CONTINGÊNCIA DE CUSTOS: "
+        item1_tit = "1. PROTEÇÃO DO CAIXA CONTRA QUEDA DE VENDAS: "
         item1_desc = (
-            f"Hoje a operação dá lucro, mas no estresse (-30%) gera déficit de R$ {format_brl(m['lucro_abs'])}/mês. "
-            f"Mapeie um corte rápido de 15% no custo fixo (R$ {format_brl(m['corte_15_rs'])}/mês) para blindar o caixa caso as vendas recuem."
+            f"Hoje a empresa dá lucro, mas se as vendas caírem 30% você terá prejuízo de R$ {format_brl(m['lucro_abs'])}/mês. "
+            f"Deixe mapeado um corte rápido de 15% nas despesas fixas (R$ {format_brl(m['corte_15_rs'])}/mês) para não queimar sua reserva."
         )
     else:
-        item1_tit = "1. EXPANSÃO COM CAIXA BLINDADO: "
-        item1_desc = "Utilize a folga de margem atual para reinvestir em canais de aquisição validados sem comprometer o capital de giro."
+        item1_tit = "1. CRESCIMENTO COM CAIXA SEGURO: "
+        item1_desc = "Use a folga de lucro atual para investir apenas nos canais de divulgação que já trazem clientes pagantes, sem mexer na reserva de caixa."
 
-    # Item 2: 100% Adaptado ao Motor Comercial de cada Nicho
+    # Item 2: Rotina Comercial 100% Adaptada ao Ramo
     if modelo == 'b2b':
-        item2_tit = "2. ROTINA COMERCIAL OUTBOUND & CONTRATOS (B2B): "
+        item2_tit = "2. ROTINA DIÁRIA DE PROSPECÇÃO E CONTRATOS: "
         item2_desc = (
             f"Para gerar {m['oportunidades_mes']} propostas/mês (~{m['oportunidades_dia']}/dia em 22 dias úteis) e fechar {m['vendas_alvo_funil']} contrato(s) "
-            f"(conversão de {m['taxa_conv_usada']:.0f}%), execute {m['tentativas_dia_total']} tentativas de prospecção fria/dia "
-            f"({m['esforco_por_vendedor']}/dia por vendedor) para obter {m['conexoes_dia_min']} a {m['conexoes_dia_max']} conexões reais/dia. "
-            f"Aplique follow-up diário em orçamentos parados e estruture contratos recorrentes de 6 a 12 meses."
+            f"(taxa de {m['taxa_conv_usada']:.0f}%), faça {m['tentativas_dia_total']} ligações/abordagens ativas por dia "
+            f"({m['esforco_por_vendedor']}/dia por pessoa) para conseguir {m['conexoes_dia_min']} a {m['conexoes_dia_max']} conversas reais/dia. "
+            f"Cobre todos os orçamentos parados diariamente e ofereça pacotes mensais de 6 a 12 meses para garantir receita fixa."
         )
     elif modelo == 'campo':
-        item2_tit = "2. PROSPECÇÃO TÉCNICA & MANUTENÇÃO PREVENTIVA: "
+        item2_tit = "2. VISITAS TÉCNICAS E CONTRATOS DE MANUTENÇÃO: "
         item2_desc = (
-            f"Execute {m['tentativas_dia_total']} abordagens ativas/dia ({m['esforco_por_vendedor']}/dia por vendedor) para obter "
-            f"{m['conexoes_dia_min']} a {m['conexoes_dia_max']} conexões reais e agendar ~{m['oportunidades_dia']} visita(s) técnica(s)/orçamento(s)/dia "
-            f"({m['oportunidades_mes']}/mês). Converta chamados avulsos em contratos preventivos mensais e otimize rotas."
+            f"Faça {m['tentativas_dia_total']} abordagens ativas/dia ({m['esforco_por_vendedor']}/dia por pessoa) para conseguir "
+            f"{m['conexoes_dia_min']} a {m['conexoes_dia_max']} conversas reais e agendar ~{m['oportunidades_dia']} visita(s) técnica(s)/orçamento(s)/dia "
+            f"({m['oportunidades_mes']}/mês). Transforme atendimentos avulsos em contratos mensais de manutenção preventiva."
         )
     elif modelo == 'servicos':
-        item2_tit = "2. RECALL DE BASE & CONVERSÃO DE AGENDA (CLÍNICAS/SERVIÇOS): "
+        item2_tit = "2. PESQUISA RÁPIDA COM PEDIDO DE 5 INDICAÇÕES + RETORNO DE BASE: "
         item2_desc = (
-            f"Divida a rotina comercial em 2 frentes diárias (22 dias úteis): (a) faça {m['recall_dia']} contatos/dia de recall no WhatsApp "
-            f"com pacientes/clientes inativos (90/180 dias) a CAC zero; (b) responda em menos de 5 minutos os ~{m['leads_receptivos_dia']} leads "
-            f"passivos/dia para agendar {m['oportunidades_dia']} avaliações/dia e confirme a agenda 24h antes para zerar faltas."
+            f"Execute 3 ações todos os dias (22 dias úteis) para gerar {m['oportunidades_dia']} avaliações/orçamentos/dia: "
+            f"(a) logo após cada atendimento, pergunte se o cliente gostou (Mini-NPS) e peça 5 indicações de amigos/familiares "
+            f"(gerando ~{m['indicacoes_dia']} indicações quentes/dia a custo zero); "
+            f"(b) chame {m['recall_dia']} clientes antigos/dia no WhatsApp para retorno (3 e 6 meses); "
+            f"(c) responda em até 5 minutos os ~{m['leads_receptivos_dia']} novos interessados/dia do Instagram/Google e confirme a agenda 24h antes."
         )
     else:
-        item2_tit = "2. ATRAÇÃO DE FLUXO, BALCÃO & NEGOCIAÇÃO DE COMPRA (VAREJO): "
+        item2_tit = "2. ATRAÇÃO DE CLIENTES, BALCÃO E COMPRA MELHOR (VAREJO): "
         item2_desc = (
-            f"Como o comércio opera com venda passiva (25 dias úteis), o foco é atrair e converter {m['oportunidades_dia']} atendimentos/dia "
-            f"({m['esforco_por_vendedor']}/dia por vendedor) para realizar ~{m['vendas_dia_varejo']} vendas/dia: "
-            f"(a) crie ofertas-isca de alto giro para atrair fluxo sem queimar margem; (b) treine abordagem de venda adicional no balcão/WhatsApp "
-            f"para elevar o ticket médio e reative clientes antigos via lista VIP; (c) renegocie prazos e descontos com fornecedores para ampliar a margem."
+            f"Para bater ~{m['vendas_dia_varejo']} vendas/dia (25 dias úteis) e atender {m['oportunidades_dia']} clientes interessados/dia na loja e no WhatsApp: "
+            f"(a) crie ofertas chamativas em produtos-isca para atrair fluxo sem derrubar sua margem geral; "
+            f"(b) ofereça sempre um item complementar no balcão/WhatsApp para aumentar o valor de cada venda e dispare novidades para clientes antigos; "
+            f"(c) negocie prazos maiores e descontos à vista com fornecedores para sobrar mais dinheiro em cada produto vendido."
         )
 
-    # Item 3: Alvo de Equilíbrio / Meta conectado ao corte de custo fixo
+    # Item 3: Alvo Prioritário
     if m['lucro'] < 0:
-        item3_tit = "3. ALVO PRIORITÁRIO DE EQUILÍBRIO: "
+        item3_tit = "3. META NÚMERO 1 (SAIR DO VERMELHO): "
         pe_v = f" ({m['vendas_pe']} vendas/mês)" if m['vendas_pe'] > 0 else ""
         pe_corte_v = f" ({m['vendas_pe_pos_corte']} vendas/mês)" if m['vendas_pe_pos_corte'] > 0 else ""
         item3_desc = (
-            f"Direcione toda a energia comercial para atingir o Ponto de Equilíbrio atual de R$ {format_brl(m['ponto_equilibrio'])}/mês{pe_v}. "
-            f"Ao aplicar o corte de 15% no custo fixo (Item 1), sua meta mínima de empate cai para R$ {format_brl(m['pe_pos_corte'])}/mês{pe_corte_v}, "
-            f"acelerando a saída do vermelho."
+            f"Concentre toda a equipe para atingir o faturamento mínimo de R$ {format_brl(m['ponto_equilibrio'])}/mês{pe_v}. "
+            f"Com o corte de 15% nas despesas fixas (Item 1), esse mínimo cai para R$ {format_brl(m['pe_pos_corte'])}/mês{pe_corte_v}, "
+            f"fazendo a empresa empatar as contas muito mais rápido."
         )
     else:
-        item3_tit = "3. ESCALA PARA A META DESEJADA: "
-        txt_v = f" (+{m['novas_vendas']} novos fechamentos/mês)" if m['novas_vendas'] > 0 else ""
+        item3_tit = "3. CAMINHO PARA BATER SUA META DE FATURAMENTO: "
+        txt_v = f" (+{m['novas_vendas']} vendas novas/mês)" if m['novas_vendas'] > 0 else ""
         item3_desc = (
-            f"Mantenha a disciplina diária da rotina comercial para alcançar R$ {format_brl(m['meta_fat'])}/mês{txt_v} "
-            f"e elevar o lucro líquido para R$ {format_brl(m['lucro_na_meta'])}/mês."
+            f"Mantenha a rotina diária de vendas acima para chegar em R$ {format_brl(m['meta_fat'])}/mês{txt_v} "
+            f"e aumentar o lucro líquido para R$ {format_brl(m['lucro_na_meta'])}/mês."
         )
 
     return [
@@ -1667,17 +1826,22 @@ def diagnostico():
         modelo = request.form.get('modelo', 'produtos')
         if modelo == 'produtos':
             receita_recorrente = 0.0
+            vendas_30d = -1
+            qtd_vendedores = 1
         elif modelo == 'servicos':
             pct_rec = float(str(request.form.get('pct_recorrencia', '0') or 0).replace(',', '.'))
             pct_rec = max(0.0, min(100.0, pct_rec))
             receita_recorrente = fat * (pct_rec / 100.0)
+            vendas_30d_raw = request.form.get('vendas_30d', '').strip()
+            vendas_30d = int(float(vendas_30d_raw)) if vendas_30d_raw != '' else -1
+            qtd_vendedores_raw = request.form.get('qtd_vendedores', '1').strip()
+            qtd_vendedores = max(1, int(float(qtd_vendedores_raw))) if qtd_vendedores_raw != '' else 1
         else:
             receita_recorrente = parse_brl(request.form.get('receita_recorrente_rs', '0'))
-
-        vendas_30d_raw = request.form.get('vendas_30d', '').strip()
-        vendas_30d = int(float(vendas_30d_raw)) if vendas_30d_raw != '' else -1
-        qtd_vendedores_raw = request.form.get('qtd_vendedores', '1').strip()
-        qtd_vendedores = max(1, int(float(qtd_vendedores_raw))) if qtd_vendedores_raw != '' else 1
+            vendas_30d_raw = request.form.get('vendas_30d', '').strip()
+            vendas_30d = int(float(vendas_30d_raw)) if vendas_30d_raw != '' else -1
+            qtd_vendedores_raw = request.form.get('qtd_vendedores', '1').strip()
+            qtd_vendedores = max(1, int(float(qtd_vendedores_raw))) if qtd_vendedores_raw != '' else 1
 
         tem_cac = 'tem_cac' in request.form
         tem_ltv = 'tem_ltv' in request.form
@@ -1757,11 +1921,11 @@ def baixar_pdf(cnpj):
             self.set_text_color(15, 46, 28)
             self.set_font('helvetica', 'B', 16)
             self.set_xy(50, 16)
-            self.cell(148, 8, 'LAUDO CLÍNICO FINANCEIRO', border=0, align='R')
+            self.cell(148, 8, 'LAUDO FINANCEIRO E COMERCIAL', border=0, align='R')
             self.set_font('helvetica', '', 8.5)
             self.set_text_color(107, 122, 112)
             self.set_xy(50, 24)
-            self.cell(148, 6, 'DIAGNÓSTICO DE RESILIÊNCIA E INTELIGÊNCIA DE CAIXA', border=0, align='R')
+            self.cell(148, 6, 'DIAGNÓSTICO DE CAIXA, MARGEM E RITMO DE VENDAS', border=0, align='R')
             self.set_draw_color(213, 232, 220)
             self.set_line_width(0.4)
             self.line(12, 43, 198, 43)
@@ -1793,12 +1957,12 @@ def baixar_pdf(cnpj):
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8.4)
     pdf.set_text_color(80, 95, 86)
-    rec_txt = f" | Recorrente: R$ {format_brl(m['receita_recorrente'])}" if m['receita_recorrente'] > 0 else " | Transacional (0% rec.)"
-    pdf.cell(175, 4.8, pdf_safe(f"Fat. Médio: R$ {format_brl(cliente['fat'])} | Fixo: R$ {format_brl(cliente['fixo'])} | Margem: {m['margem_pct']:.1f}% | Caixa: R$ {format_brl(cliente['caixa'])}{rec_txt}"), ln=1)
+    rec_txt = f" | Garantido: R$ {format_brl(m['receita_recorrente'])}" if m['receita_recorrente'] > 0 else " | Venda mês a mês (0% fixo)"
+    pdf.cell(175, 4.8, pdf_safe(f"Fat. Médio: R$ {format_brl(cliente['fat'])} | Desp. Fixa: R$ {format_brl(cliente['fixo'])} | Sobra: {m['margem_pct']:.1f}% | Caixa: R$ {format_brl(cliente['caixa'])}{rec_txt}"), ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', 'B', 8.4)
     pdf.set_text_color(192, 57, 43) if m['lucro_atual'] < 0 else pdf.set_text_color(15, 46, 28)
-    pdf.cell(175, 4.8, pdf_safe(f"Resultado na Média Atual: R$ {format_brl(m['lucro_atual'])}/mês (Margem: R$ {format_brl(m['margem_atual_rs'])} - Fixo: R$ {format_brl(cliente['fixo'])})"), ln=1)
+    pdf.cell(175, 4.8, pdf_safe(f"Resultado Atual: R$ {format_brl(m['lucro_atual'])}/mês (Sobra das vendas: R$ {format_brl(m['margem_atual_rs'])} - Despesa Fixa: R$ {format_brl(cliente['fixo'])})"), ln=1)
     pdf.set_y(y + 22 + 4.0)
 
     # 2. Ponto de Equilíbrio
@@ -1808,21 +1972,21 @@ def baixar_pdf(cnpj):
     pdf.set_xy(19, y + 2.6)
     pdf.set_font('helvetica', 'B', 8.4)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.4, "1. PONTO DE EQUILÍBRIO (FATURAMENTO MÍNIMO MENSAL)", ln=1)
+    pdf.cell(175, 4.4, "1. FATURAMENTO MÍNIMO PARA EMPATAR (PONTO DE EQUILÍBRIO)", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', 'B', 13.5)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 6.2, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
+    pdf.cell(175, 6.2, f"R$ {format_brl(m['ponto_equilibrio'])} / mês", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 7.9)
     pdf.set_text_color(60, 70, 75)
     pe_vendas = f" = {m['vendas_pe']} vendas/mês" if m['vendas_pe'] > 0 else ""
-    pdf.cell(175, 4.3, pdf_safe(f"Conta: Custo Fixo (R$ {format_brl(cliente['fixo'])}) / Margem ({m['margem_pct']:.1f}%) = R$ {format_brl(m['ponto_equilibrio'])}{pe_vendas} para empatar."), ln=1)
+    pdf.cell(175, 4.3, pdf_safe(f"Conta: Despesa Fixa (R$ {format_brl(cliente['fixo'])}) / Margem ({m['margem_pct']:.1f}%) = R$ {format_brl(m['ponto_equilibrio'])}{pe_vendas} para empatar."), ln=1)
     if m['receita_recorrente'] > 0:
         pdf.set_x(19)
         pdf.set_font('helvetica', 'B', 7.9)
         pdf.set_text_color(15, 46, 28)
-        pdf.cell(175, 4.3, pdf_safe(f"Cobertura Recorrente: Base recorrente de R$ {format_brl(m['receita_recorrente'])} paga {m['cobertura_fixo_rec_pct']:.0f}% do custo fixo."), ln=1)
+        pdf.cell(175, 4.3, pdf_safe(f"Ajuda Recorrente: Sua base garantida de R$ {format_brl(m['receita_recorrente'])} já paga {m['cobertura_fixo_rec_pct']:.0f}% da despesa fixa."), ln=1)
     pdf.set_y(y + alt_pe + 4.0)
 
     # 3. Cenário de Estresse
@@ -1834,103 +1998,108 @@ def baixar_pdf(cnpj):
     pdf.set_xy(19, y + 2.6)
     pdf.set_font('helvetica', 'B', 8.4)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.4, "2. TESTE DE ESTRESSE (CENÁRIO DE QUEDA DE 30% NAS VENDAS)", ln=1)
+    pdf.cell(175, 4.4, "2. TESTE DE CRISE (SE AS VENDAS CAÍREM 30%)", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', 'B', 12)
     pdf.set_text_color(*val_color)
-    pdf.cell(175, 6.4, f"Fat. Estresse: R$ {format_brl(m['fat_estresse'])}   |   Resultado: R$ {format_brl(m['lucro'])}/mês", ln=1)
+    pdf.cell(175, 6.4, f"Vendas na Crise: R$ {format_brl(m['fat_estresse'])}   |   Resultado: R$ {format_brl(m['lucro'])}/mês", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 7.9)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(175, 4.3, pdf_safe(f"Conta: Fat. (-30%) gera R$ {format_brl(m['margem_estresse_rs'])} de margem ({m['margem_pct']:.1f}%) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro'])}."), ln=1)
+    pdf.cell(175, 4.3, pdf_safe(f"Conta: Vendas (-30%) deixam R$ {format_brl(m['margem_estresse_rs'])} ({m['margem_pct']:.1f}%) - Desp. Fixa (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro'])}."), ln=1)
     pdf.set_y(y + 23.5 + 4.0)
 
-    # 4. Projeção na Meta + Engenharia Reversa por Nicho
+    # 4. Projeção na Meta + Engenharia Reversa por Ramo
     y = pdf.get_y()
-    alt_meta = 34.5 if cliente['ticket_medio'] > 0 else 23.5
+    alt_meta = 38.5 if (cliente['ticket_medio'] > 0 and cliente['modelo'] == 'servicos') else (34.5 if cliente['ticket_medio'] > 0 else 23.5)
     desenhar_card(y, alt_meta, (235, 245, 251), (41, 128, 185))
     pdf.set_xy(19, y + 2.6)
     pdf.set_font('helvetica', 'B', 8.4)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.3, f"3. PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
+    pdf.cell(175, 4.3, f"3. PLANO PARA BATER SUA META (R$ {format_brl(m['meta_fat'])}/MÊS)", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', 'B', 10.5)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 5.8, f"Crescimento: +{m['crescimento_necessario']:.1f}%  |  Resultado Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}/mês", ln=1)
+    pdf.cell(175, 5.8, f"Crescimento: +{m['crescimento_necessario']:.1f}%  |  Sobra Líquida na Meta: R$ {format_brl(m['lucro_na_meta'])}/mês", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 7.8)
     pdf.set_text_color(60, 70, 75)
-    aviso_pe_pdf = " [ATENÇÃO: Meta abaixo do Ponto de Equilíbrio!]" if m['meta_abaixo_pe'] else ""
-    pdf.cell(175, 4.3, pdf_safe(f"Conta: Margem na meta (R$ {format_brl(m['margem_meta_rs'])}) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro_na_meta'])}.{aviso_pe_pdf}"), ln=1)
+    aviso_pe_pdf = " [ATENÇÃO: Meta abaixo do mínimo para empatar!]" if m['meta_abaixo_pe'] else ""
+    pdf.cell(175, 4.3, pdf_safe(f"Conta: Sobra na meta (R$ {format_brl(m['margem_meta_rs'])}) - Desp. Fixa (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro_na_meta'])}.{aviso_pe_pdf}"), ln=1)
     if cliente['ticket_medio'] > 0:
         pdf.set_x(19)
         pdf.set_font('helvetica', 'B', 7.9)
         pdf.set_text_color(27, 79, 114)
         if m['receita_recorrente'] > 0:
-            origem_v = f"Base recorrente: R$ {format_brl(m['receita_recorrente'])} (~{m['vendas_recorrentes_txt']} un.) + {m['novas_vendas']} novos fechamentos/mês"
+            origem_v = f"Base garantida: R$ {format_brl(m['receita_recorrente'])} (~{m['vendas_recorrentes_txt']} un.) + {m['novas_vendas']} vendas novas/mês"
         else:
-            origem_v = f"Transacional (0% rec.): {m['vendas_meta']} vendas totais/mês (+{m['novas_vendas']} sobre ritmo atual)"
-        pdf.cell(175, 4.3, pdf_safe(f"Comercial: {origem_v}."), ln=1)
+            origem_v = f"Meta total: {m['vendas_meta']} vendas/mês (+{m['novas_vendas']} vendas sobre o ritmo atual)"
+        pdf.cell(175, 4.3, pdf_safe(f"Vendas: {origem_v}."), ln=1)
         pdf.set_x(19)
         if cliente['modelo'] in ('b2b', 'campo'):
-            linha_funil = f"Outbound (22d): {m['oportunidades_mes']} propostas/mês (~{m['oportunidades_dia']}/dia) -> {m['tentativas_dia_total']} tentativas/dia ({m['conexoes_dia_min']}-{m['conexoes_dia_max']} conexões)."
+            linha_funil = f"Prospecção (22d): {m['oportunidades_mes']} propostas/mês (~{m['oportunidades_dia']}/dia) -> {m['tentativas_dia_total']} abordagens/dia ({m['conexoes_dia_min']}-{m['conexoes_dia_max']} conversas)."
+            pdf.cell(175, 4.3, pdf_safe(linha_funil), ln=1)
         elif cliente['modelo'] == 'servicos':
-            linha_funil = f"Clínica/Agenda (22d): {m['oportunidades_mes']} avaliações/mês (~{m['oportunidades_dia']}/dia) -> {m['leads_receptivos_dia']} leads/dia + {m['recall_dia']} recalls/dia."
+            linha_funil1 = f"Agenda (22d): {m['oportunidades_mes']} avaliações/mês (~{m['oportunidades_dia']}/dia)."
+            linha_funil2 = f"Fontes diárias: ~{m['indicacoes_dia']} indicações (Mini-NPS 5 nomes) + {m['recall_dia']} retornos WhatsApp + {m['leads_receptivos_dia']} novos."
+            pdf.cell(175, 4.1, pdf_safe(linha_funil1), ln=1)
+            pdf.set_x(19)
+            pdf.cell(175, 4.1, pdf_safe(linha_funil2), ln=1)
         else:
-            linha_funil = f"Varejo Passivo (25d): ~{m['vendas_dia_varejo']} vendas/dia -> {m['oportunidades_dia']} atendimentos balcão/WhatsApp/dia ({m['esforco_por_vendedor']}/vendedor)."
-        pdf.cell(175, 4.3, pdf_safe(linha_funil), ln=1)
+            linha_funil = f"Varejo (25d): ~{m['vendas_dia_varejo']} vendas/dia -> {m['oportunidades_dia']} atendimentos interessados/dia na loja e WhatsApp."
+            pdf.cell(175, 4.3, pdf_safe(linha_funil), ln=1)
     pdf.set_y(y + alt_meta + 4.0)
 
-    # 5. Runway
+    # 5. Fôlego do Caixa
     y = pdf.get_y()
     desenhar_card(y, 19, bg_color, bar_color)
     pdf.set_xy(19, y + 2.5)
     pdf.set_font('helvetica', 'B', 8.4)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 4.3, "4. FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
+    pdf.cell(175, 4.3, "4. FÔLEGO DO CAIXA (QUANTO TEMPO O DINHEIRO AGUENTA NA CRISE)", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8.2)
     pdf.set_text_color(40, 40, 40)
     if is_critical:
-        texto_runway = f"CRÍTICO: Caixa (R$ {format_brl(cliente['caixa'])}) / Queima no estresse (R$ {format_brl(m['lucro_abs'])}/mês) = {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias) de fôlego."
+        texto_runway = f"ATENÇÃO: Caixa atual (R$ {format_brl(cliente['caixa'])}) / Prejuízo na crise (R$ {format_brl(m['lucro_abs'])}/mês) = {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias) de fôlego."
     else:
-        texto_runway = f"ESTÁVEL: Mesmo com queda de 30%, a empresa gera lucro e preserva os R$ {format_brl(cliente['caixa'])} em caixa."
+        texto_runway = f"SEGURO: Mesmo com queda de 30%, a empresa continua dando lucro e preserva os R$ {format_brl(cliente['caixa'])} em caixa."
     pdf.multi_cell(175, 4.3, pdf_safe(texto_runway))
     pdf.set_y(y + 19 + 4.0)
 
-    # 6. Prescrição Estratégica Calibrada por Nicho
+    # 6. Plano de Ação Prático Calibrado por Ramo
     itens_prescricao = gerar_textos_prescricao(cliente, m)
 
-    pdf.set_font('helvetica', '', 8.4)
+    pdf.set_font('helvetica', '', 8.2)
     altura_texto_presc = 0
     for tit, desc in itens_prescricao:
-        linhas = max(1, math.ceil(pdf.get_string_width(tit + desc) / 168))
-        altura_texto_presc += (linhas * 4.4) + 1.8
-    altura_card_presc = 13 + altura_texto_presc
+        linhas = max(1, math.ceil(pdf.get_string_width(tit + desc) / 166))
+        altura_texto_presc += (linhas * 4.3) + 1.6
+    altura_card_presc = 12 + altura_texto_presc
 
     y = pdf.get_y()
     desenhar_card(y, altura_card_presc, (15, 46, 28), (0, 200, 83))
-    pdf.set_xy(19, y + 3.0)
-    pdf.set_font('helvetica', 'B', 9.6)
+    pdf.set_xy(19, y + 2.8)
+    pdf.set_font('helvetica', 'B', 9.5)
     pdf.set_text_color(0, 200, 83)
-    pdf.cell(175, 4.6, "PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)", ln=1)
+    pdf.cell(175, 4.5, "PLANO DE AÇÃO PRÁTICO (O QUE FAZER AGORA?)", ln=1)
 
     pdf.set_left_margin(19)
     pdf.set_right_margin(16)
-    pdf.set_y(y + 9.4)
+    pdf.set_y(y + 9.0)
     pdf.set_text_color(245, 248, 246)
     for tit, desc in itens_prescricao:
         pdf.set_x(19)
-        pdf.set_font('helvetica', 'B', 8.4)
-        pdf.write(4.4, pdf_safe(tit))
-        pdf.set_font('helvetica', '', 8.4)
-        pdf.write(4.4, pdf_safe(desc + "\n"))
-        pdf.ln(1.5)
+        pdf.set_font('helvetica', 'B', 8.2)
+        pdf.write(4.3, pdf_safe(tit))
+        pdf.set_font('helvetica', '', 8.2)
+        pdf.write(4.3, pdf_safe(desc + "\n"))
+        pdf.ln(1.4)
 
     pdf.set_left_margin(12)
     pdf.set_right_margin(12)
 
-    # PÁGINA 2: RADAR DE MÉTRICAS CEGAS PERSONALIZADO
+    # PÁGINA 2: RADAR DE CONTROLE PERSONALIZADO
     pdf.add_page()
     y = pdf.get_y()
     altura_card_cegas = 98
@@ -1946,13 +2115,13 @@ def baixar_pdf(cnpj):
     pdf.set_xy(20, y + 5)
     pdf.set_font('helvetica', 'B', 12)
     pdf.set_text_color(*((15, 46, 28) if is_all_ok else (192, 57, 43)))
-    titulo_radar = "RADAR DE INDICADORES: 100% MONITORADO" if is_all_ok else f"ALERTA CRÍTICO: {m['qtd_cegas']} DE 4 MÉTRICAS CEGAS NA OPERAÇÃO"
+    titulo_radar = "RADAR DE CONTROLE: TODOS OS NÚMEROS NA MÃO" if is_all_ok else f"ALERTA: {m['qtd_cegas']} DE 4 NÚMEROS IMPORTANTES ESTÃO NO ESCURO"
     pdf.cell(172, 6.5, titulo_radar, ln=1)
 
     pdf.set_x(20)
     pdf.set_font('helvetica', '', 9.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.multi_cell(172, 5, "Raio-X de maturidade comercial e financeira levantado no seu diagnóstico:")
+    pdf.multi_cell(172, 5, "Veja quais indicadores você já acompanha e onde o dinheiro pode estar escapando:")
     pdf.ln(3)
 
     for item in m['radar_metricas']:
@@ -1965,20 +2134,20 @@ def baixar_pdf(cnpj):
         pdf.set_fill_color(*((0, 200, 83) if ok_m else (192, 57, 43)))
         pdf.rect(20, y_item, 2, 13.5, 'F')
         pdf.set_xy(24, y_item + 2)
-        pdf.set_font('helvetica', 'B', 9.5)
+        pdf.set_font('helvetica', 'B', 9.2)
         pdf.set_text_color(*((15, 46, 28) if ok_m else (192, 57, 43)))
-        status_tag = "[CONTROLADO] " if ok_m else "[CEGO] "
+        status_tag = "[CONTROLADO] " if ok_m else "[NO ESCURO] "
         pdf.cell(165, 4.5, pdf_safe(status_tag + item['titulo']), ln=1)
         pdf.set_x(24)
-        pdf.set_font('helvetica', '', 8.8)
+        pdf.set_font('helvetica', '', 8.4)
         pdf.set_text_color(60, 60, 60)
         pdf.cell(165, 4.5, pdf_safe(item['descricao']), ln=1)
         pdf.set_y(y_item + 15.5)
 
     pdf.set_x(20)
-    pdf.set_font('helvetica', 'B', 9.5)
+    pdf.set_font('helvetica', 'B', 9.3)
     pdf.set_text_color(*((15, 46, 28) if is_all_ok else (146, 43, 33)))
-    rodape_radar = "Excelente visibilidade de dados. O foco agora é otimizar conversão e margem." if is_all_ok else "Operar sem esses números significa queimar margem todos os dias sem perceber."
+    rodape_radar = "Excelente controle dos números. Agora o foco é aumentar vendas e margem." if is_all_ok else "Gerenciar sem esses números faz você perder margem e vendas todos os dias sem notar."
     pdf.cell(172, 6, rodape_radar, ln=1)
     pdf.set_y(y + altura_card_cegas + 9)
 
@@ -1988,18 +2157,18 @@ def baixar_pdf(cnpj):
         pdf.set_xy(19, y_cons + 3.5)
         pdf.set_font('helvetica', 'B', 10)
         pdf.set_text_color(160, 64, 0)
-        pdf.cell(175, 5.5, "CONSEQUÊNCIA DA INAÇÃO", ln=1)
+        pdf.cell(175, 5.5, "O QUE ACONTECE SE NADA FOR FEITO", ln=1)
         pdf.set_x(19)
-        pdf.set_font('helvetica', '', 9.2)
+        pdf.set_font('helvetica', '', 9.1)
         pdf.set_text_color(50, 50, 50)
-        pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias), exigindo captação de crédito a juros predatórios.")
+        pdf.multi_cell(175, 4.8, f"Se essas ações não forem aplicadas agora, o dinheiro em caixa acabará em {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias), obrigando a empresa a buscar empréstimos caros.")
         pdf.set_y(y_cons + 24 + 10)
 
     y_btn = pdf.get_y()
     pdf.set_fill_color(37, 211, 102)
     pdf.set_font('helvetica', 'B', 11.5)
     pdf.set_text_color(255, 255, 255)
-    link_wpp = f"https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20preciso%20de%20ajuda%20estratégica."
+    link_wpp = f"https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20e%20quero%20ajuda%20para%20aplicar%20o%20plano."
     pdf.set_xy(45, y_btn)
     pdf.cell(120, 13, "FALAR COM O DOUTOR CAIXA NO WHATSAPP", fill=True, align='C', link=link_wpp)
 
