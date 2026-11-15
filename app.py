@@ -26,9 +26,8 @@ TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
 TELEGRAM_CHAT_ID = "7635246193".strip()
 
 # --- 3. DISPARO AUTOMÁTICO WHATSAPP (OPCIONAL - EVOLUTION API / Z-API) ---
-# Preencha quando quiser que o robô envie o link do laudo direto no WhatsApp do lead
-WHATSAPP_API_URL = "".strip()      # Ex: https://sua-api.com/message/sendText/doutorcaixa
-WHATSAPP_API_TOKEN = "".strip()    # Sua API Key da instância
+WHATSAPP_API_URL = "".strip()
+WHATSAPP_API_TOKEN = "".strip()
 WHATSAPP_SUPORTE = "5581979091165"
 
 # --- 4. BANCO LOCAL SQLITE (GARANTIA DE PERSISTÊNCIA E FALLBACK INSTANTÂNEO) ---
@@ -259,12 +258,10 @@ def normalizar_cliente(row):
 def buscar_cliente_db(cnpj_bruto):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj_bruto)))
 
-    # 1. Tenta Supabase Nuvem
     ok, dados = supabase_rest("GET", f"clientes_doutor_caixa?cnpj=eq.{cnpj_limpo}&select=*")
     if ok and isinstance(dados, list) and len(dados) > 0:
         return normalizar_cliente(dados[0])
 
-    # 2. Tenta SQLite Local
     try:
         conn = sqlite3.connect(DB_LOCAL_PATH)
         conn.row_factory = sqlite3.Row
@@ -277,7 +274,6 @@ def buscar_cliente_db(cnpj_bruto):
     except Exception as e:
         print(f"ERRO BUSCA SQLITE: {e}")
 
-    # 3. Exemplo padrão de demonstração
     if cnpj_limpo == "11222333000181":
         return normalizar_cliente({
             "cnpj": "11222333000181",
@@ -302,7 +298,6 @@ def buscar_cliente_db(cnpj_bruto):
 def salvar_cliente_db(registro):
     cnpj_limpo = registro["cnpj"]
 
-    # Verifica se já existe diagnóstico anterior para montar comparativo
     anterior = buscar_cliente_db(cnpj_limpo)
     historico = []
     if anterior and cnpj_limpo != "11222333000181":
@@ -315,12 +310,11 @@ def salvar_cliente_db(registro):
             "margem": anterior["margem"],
             "ticket_medio": anterior["ticket_medio"]
         })
-        historico = historico[-5:]  # Mantém os últimos 5 registros
+        historico = historico[-5:]
 
     registro["historico_json"] = json.dumps(historico, ensure_ascii=False)
     registro["atualizado_em"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 1. Salva no SQLite Local (garantia imediata)
     try:
         conn = sqlite3.connect(DB_LOCAL_PATH)
         cur = conn.cursor()
@@ -344,7 +338,6 @@ def salvar_cliente_db(registro):
     except Exception as e:
         print(f"ERRO GRAVAÇÃO SQLITE: {e}")
 
-    # 2. Sincroniza com Supabase Nuvem (sem travar o cliente caso haja instabilidade de DNS)
     payload_sb = {
         "cnpj": cnpj_limpo,
         "nome": registro["nome"],
@@ -388,7 +381,6 @@ def format_cnpj(cnpj):
 
 
 def pdf_safe(texto):
-    # Remove emojis e caracteres fora do padrão latin-1 para evitar falha no FPDF
     return str(texto).encode("latin-1", "ignore").decode("latin-1")
 
 
@@ -418,7 +410,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.0</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.1</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -430,7 +422,7 @@ def teste_conexao():
 
 
 # --- TEMPLATES HTML ---
-TEMPLATE_HOME = """
+TEMPLATE_HOME = r"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -494,7 +486,7 @@ TEMPLATE_HOME = """
 </html>
 """
 
-TEMPLATE_SUCESSO = """
+TEMPLATE_SUCESSO = r"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -532,7 +524,7 @@ TEMPLATE_SUCESSO = """
 </html>
 """
 
-TEMPLATE_DIAGNOSTICO = """
+TEMPLATE_DIAGNOSTICO = r"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -569,7 +561,6 @@ TEMPLATE_DIAGNOSTICO = """
         .wpp-box input { border-color: #f5b041; }
         .wpp-box input:focus { border-color: #d35400; }
 
-        /* ESTILO DOS TOGGLES DE MÉTRICAS CEGAS */
         .metric-card { background: #f8fbf9; border: 1.5px solid #e1ede6; border-radius: 10px; padding: 14px; margin-bottom: 12px; transition: 0.2s; }
         .metric-card.active { background: #f0fdf4; border-color: #00C853; }
         .metric-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
@@ -703,7 +694,6 @@ TEMPLATE_DIAGNOSTICO = """
             <div class="section-title">4. Radar de Indicadores (Métricas Cegas)</div>
             <p class="section-sub">Ative a chave <b>apenas</b> para os indicadores que você realmente mede e tem certeza do número hoje. Se não souber, deixe desligado.</p>
 
-            <!-- CAC -->
             <div class="metric-card" id="card_cac">
                 <label class="metric-header" for="toggle_cac">
                     <div class="metric-info">
@@ -721,7 +711,6 @@ TEMPLATE_DIAGNOSTICO = """
                 </div>
             </div>
 
-            <!-- LTV -->
             <div class="metric-card" id="card_ltv">
                 <label class="metric-header" for="toggle_ltv">
                     <div class="metric-info">
@@ -739,7 +728,6 @@ TEMPLATE_DIAGNOSTICO = """
                 </div>
             </div>
 
-            <!-- TAXA DE CONVERSÃO -->
             <div class="metric-card" id="card_conv">
                 <label class="metric-header" for="toggle_conv">
                     <div class="metric-info">
@@ -757,7 +745,6 @@ TEMPLATE_DIAGNOSTICO = """
                 </div>
             </div>
 
-            <!-- CICLO FINANCEIRO -->
             <div class="metric-card" id="card_ciclo">
                 <label class="metric-header" for="toggle_ciclo">
                     <div class="metric-info">
@@ -803,10 +790,10 @@ TEMPLATE_DIAGNOSTICO = """
         }
 
         function validarCNPJ(cnpj) {
-            cnpj = cnpj.replace(/[^\\d]+/g,'');
+            cnpj = cnpj.replace(/[^\d]+/g,'');
             if(cnpj == '') return false;
             if (cnpj.length != 14) return false;
-            if (/^(\\d)\\1+$/.test(cnpj)) return false;
+            if (/^(\d)\1+$/.test(cnpj)) return false;
             let tamanho = cnpj.length - 2
             let numeros = cnpj.substring(0,tamanho);
             let digitos = cnpj.substring(tamanho);
@@ -840,9 +827,9 @@ TEMPLATE_DIAGNOSTICO = """
             }
             
             let wppInput = document.getElementById('whatsapp');
-            let wpp = wppInput.value.replace(/\\D/g, ''); 
+            let wpp = wppInput.value.replace(/\D/g, ''); 
             
-            let regexCelularBR = /^[1-9]{2}9\\d{8}$/;
+            let regexCelularBR = /^[1-9]{2}9\d{8}$/;
             if (!regexCelularBR.test(wpp)) {
                 alert("Por favor, insira um número de celular válido com DDD (ex: 81 99999-9999).");
                 wppInput.focus();
@@ -852,26 +839,26 @@ TEMPLATE_DIAGNOSTICO = """
         }
 
         document.getElementById('cnpj').addEventListener('input', function (e) {
-            let v = e.target.value.replace(/\\D/g, '').slice(0, 14);
-            v = v.replace(/^(\\d{2})(\\d)/, '$1.$2');
-            v = v.replace(/^(\\d{2})\\.(\\d{3})(\\d)/, '$1.$2.$3');
-            v = v.replace(/\\.(\\d{3})(\\d)/, '.$1/$2');
-            v = v.replace(/(\\d{4})(\\d)/, '$1-$2');
+            let v = e.target.value.replace(/\D/g, '').slice(0, 14);
+            v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+            v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+            v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+            v = v.replace(/(\d{4})(\d)/, '$1-$2');
             e.target.value = v;
         });
 
         document.getElementById('whatsapp').addEventListener('input', function (e) {
-            let x = e.target.value.replace(/\\D/g, '').match(/(\\d{0,2})(\\d{0,5})(\\d{0,4})/);
+            let x = e.target.value.replace(/\D/g, '').match(/(\d{0,2})(\d{0,5})(\d{0,4})/);
             e.target.value = !x[2] ? x[1] : '(' + x[1] + ') ' + x[2] + (x[3] ? '-' + x[3] : '');
         });
 
         document.querySelectorAll('.moeda').forEach(function(input) {
             input.addEventListener('input', function(e) {
-                let v = e.target.value.replace(/\\D/g, '');
+                let v = e.target.value.replace(/\D/g, '');
                 if (!v) { e.target.value = ''; return; }
                 v = (parseInt(v, 10) / 100).toFixed(2) + '';
                 v = v.replace('.', ',');
-                v = v.replace(/(\\d)(?=(\\d{3})+(?!\\d))/g, '$1.');
+                v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
                 e.target.value = v;
             });
         });
@@ -880,7 +867,7 @@ TEMPLATE_DIAGNOSTICO = """
 </html>
 """
 
-TEMPLATE_DASHBOARD = """
+TEMPLATE_DASHBOARD = r"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -900,10 +887,16 @@ TEMPLATE_DASHBOARD = """
         .header-titles { text-align: right; }
         .header h1 { color: var(--verde-profundo); font-size: 24px; margin: 0; font-weight: 700; line-height: 1.2; }
         .header span { font-size: 12px; color: var(--cinza-neutro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-        .paciente-box { background: #f7faf8; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid var(--verde-profundo); }
+        .paciente-box { background: #f7faf8; padding: 14px 18px; border-radius: 8px; margin-bottom: 14px; border-left: 5px solid var(--verde-profundo); }
         .paciente-box p { margin: 0; font-size: 16px; color: var(--cinza-neutro); }
         .paciente-box strong { color: var(--verde-profundo); }
         .paciente-box small { display: block; margin-top: 2px; font-size: 13px; color: var(--cinza-neutro); }
+        
+        .premissas-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+        .prem-item { background: #f4f8f6; border: 1px solid #dfece5; border-radius: 8px; padding: 10px 12px; }
+        .prem-item span { display: block; font-size: 11px; color: #6B7A70; font-weight: 600; text-transform: uppercase; }
+        .prem-item strong { display: block; font-size: 14px; color: #0F2E1C; margin-top: 2px; }
+
         .hist-box { background: #eef9f2; border: 1.5px solid #00C853; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13.5px; color: #0F2E1C; }
         .card { background: var(--menta-suave); padding: 18px 20px; border-radius: 10px; margin-bottom: 14px; border-left: 5px solid var(--verde-caixa); }
         .card-label { color: var(--cinza-neutro); font-weight: 700; font-size: 14px; }
@@ -913,8 +906,12 @@ TEMPLATE_DASHBOARD = """
         .value { font-size: 26px; font-weight: 700; color: var(--verde-profundo); margin-top: 4px; }
         .value.red { color: var(--cor-alerta-texto); }
         .value.blue { color: var(--azul-metrica); }
-        .helper-text { font-size: 12px; color: var(--cinza-neutro); margin-top: 4px; }
-        .engenharia-box { background: #ffffff; border: 1px solid #bcd9ea; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 13px; color: #1b4f72; }
+        
+        .explain-box { background: rgba(255, 255, 255, 0.78); border-radius: 7px; padding: 10px 13px; margin-top: 10px; font-size: 12.8px; color: #2c3e50; line-height: 1.48; border: 1px solid rgba(0,0,0,0.06); }
+        .explain-box b { color: #0F2E1C; }
+        .alerta-meta-pe { background: #fdecea; border: 1.5px solid #e74c3c; color: #922b21; border-radius: 7px; padding: 10px 13px; margin-top: 10px; font-size: 12.8px; line-height: 1.45; }
+        .engenharia-box { background: #ffffff; border: 1px solid #bcd9ea; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 13px; color: #1b4f72; line-height: 1.5; }
+        
         .prescricao-card { background: var(--verde-profundo); border-left: 5px solid var(--verde-caixa); color: var(--branco); padding: 22px 20px; border-radius: 10px; margin-bottom: 16px; }
         .prescricao-title { color: var(--verde-caixa); font-size: 16px; font-weight: 700; margin-bottom: 14px; letter-spacing: 0.3px; }
         .lista-acoes p { margin: 0 0 12px 0; color: #f0f4f1; font-size: 15px; line-height: 1.5; }
@@ -944,7 +941,23 @@ TEMPLATE_DASHBOARD = """
         .btn-outline:hover { background: var(--verde-profundo); color: var(--branco); }
         .btn-wpp { background: var(--whatsapp); color: #ffffff; }
         .btn-wpp:hover { background: #1ebe57; }
-        @media (max-width: 640px) { body { padding: 0; background: var(--branco); } .container { max-width: 100%; border-radius: 0; box-shadow: none; padding: 20px 16px 32px 16px; } .header { flex-direction: row; align-items: center; padding-bottom: 14px; margin-bottom: 18px; } .logo { max-width: 110px; } .header h1 { font-size: 18px; } .header span { font-size: 10px; } .card { padding: 15px 16px; margin-bottom: 12px; } .card-label { font-size: 13px; } .value { font-size: 22px; } .mc-grid { grid-template-columns: 1fr; } .metricas-cegas-card { padding: 16px; } .mc-title { font-size: 16px; } .botoes { flex-direction: column; gap: 10px; } .btn { width: 100%; min-width: 100%; padding: 16px; font-size: 15px; } }
+        @media (max-width: 640px) {
+            body { padding: 0; background: var(--branco); }
+            .container { max-width: 100%; border-radius: 0; box-shadow: none; padding: 20px 16px 32px 16px; }
+            .header { flex-direction: row; align-items: center; padding-bottom: 14px; margin-bottom: 18px; }
+            .logo { max-width: 110px; }
+            .header h1 { font-size: 18px; }
+            .header span { font-size: 10px; }
+            .premissas-grid { grid-template-columns: 1fr 1fr; }
+            .card { padding: 15px 16px; margin-bottom: 12px; }
+            .card-label { font-size: 13px; }
+            .value { font-size: 22px; }
+            .mc-grid { grid-template-columns: 1fr; }
+            .metricas-cegas-card { padding: 16px; }
+            .mc-title { font-size: 16px; }
+            .botoes { flex-direction: column; gap: 10px; }
+            .btn { width: 100%; min-width: 100%; padding: 16px; font-size: 15px; }
+        }
     </style>
 </head>
 <body>
@@ -962,53 +975,104 @@ TEMPLATE_DASHBOARD = """
             <small>CNPJ: {{ cnpj|format_cnpj }} | Setor: <strong>{{ cliente.modelo|upper }}</strong>{% if cliente.ticket_medio > 0 %} | Ticket Médio: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %}</small>
         </div>
 
+        <div class="premissas-grid">
+            <div class="prem-item">
+                <span>Fat. Atual</span>
+                <strong>R$ {{ cliente.fat|format_brl }}</strong>
+            </div>
+            <div class="prem-item">
+                <span>Custo Fixo</span>
+                <strong>R$ {{ cliente.fixo|format_brl }}</strong>
+            </div>
+            <div class="prem-item">
+                <span>Margem Contrib.</span>
+                <strong>{{ "%.1f"|format(margem_pct) }}%</strong>
+            </div>
+            <div class="prem-item">
+                <span>Caixa Atual</span>
+                <strong>R$ {{ cliente.caixa|format_brl }}</strong>
+            </div>
+        </div>
+
         {% if comparativo %}
         <div class="hist-box">
             📈 <strong>Evolução vs. Última Consulta ({{ comparativo.data }}):</strong><br>
             Caixa: <strong>{{ comparativo.diff_caixa }}</strong> | Faturamento: <strong>{{ comparativo.diff_fat }}</strong>
         </div>
         {% endif %}
-        
-        <div class="card alert-blue">
-            <div class="card-label">Ponto de Equilíbrio (Faturamento Mínimo Mensal)</div>
-            <div class="value blue">R$ {{ ponto_equilibrio|format_brl }}</div>
-            <div class="helper-text">*Faturamento necessário para cobrir todos os custos e não ter prejuízo{% if vendas_pe > 0 %} (equivale a <b>{{ vendas_pe }} vendas/mês</b> no seu ticket médio){% endif %}.</div>
-        </div>
-        
-        <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">Faturamento Projetado (Pior Cenário -30%)</div>
-            <div class="value">R$ {{ fat_estresse|format_brl }}</div>
-        </div>
 
-        <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">Lucro Líquido Projetado (Cenário de Estresse)</div>
-            <div class="value {% if lucro < 0 %}red{% endif %}">R$ {{ lucro|format_brl }}</div>
-        </div>
-
-        <div class="card alert-blue">
-            <div class="card-label">Projeção na Meta de Faturamento Desejada (R$ {{ meta_fat|format_brl }})</div>
-            <div class="value blue" style="font-size: 22px;">
-                Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% | Lucro na Meta: R$ {{ lucro_na_meta|format_brl }}
+        <!-- 0. FOTOGRAFIA ATUAL -->
+        <div class="card {% if lucro_atual < 0 %}alert-red{% else %}alert-green{% endif %}">
+            <div class="card-label">0. Resultado Líquido Atual (Cenário Hoje)</div>
+            <div class="value {% if lucro_atual < 0 %}red{% endif %}">R$ {{ lucro_atual|format_brl }} / mês</div>
+            <div class="explain-box">
+                <b>Como chegamos nesse número:</b> Com faturamento de <b>R$ {{ cliente.fat|format_brl }}</b> e margem de contribuição de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sobram <b>R$ {{ margem_atual_rs|format_brl }}</b> para pagar os <b>R$ {{ cliente.fixo|format_brl }}</b> de custo fixo (<code>R$ {{ margem_atual_rs|format_brl }} - R$ {{ cliente.fixo|format_brl }} = R$ {{ lucro_atual|format_brl }}</code>).
             </div>
-            <div class="helper-text">*Lucro Líquido projetado mantendo sua estrutura e margem atual de {{ cliente.margem }}%.</div>
+        </div>
+        
+        <!-- 1. PONTO DE EQUILÍBRIO -->
+        <div class="card alert-blue">
+            <div class="card-label">1. Ponto de Equilíbrio (Faturamento Mínimo Mensal)</div>
+            <div class="value blue">R$ {{ ponto_equilibrio|format_brl }}</div>
+            <div class="explain-box">
+                <b>Por que esse valor?</b> Para pagar seu custo fixo de <b>R$ {{ cliente.fixo|format_brl }}</b> tendo uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b>, sua operação precisa faturar no mínimo <b>R$ {{ ponto_equilibrio|format_brl }}</b> (<code>R$ {{ cliente.fixo|format_brl }} ÷ {{ "%.1f"|format(margem_pct) }}%</code>){% if vendas_pe > 0 %} — o que equivale a <b>{{ vendas_pe }} vendas/mês</b> no seu ticket médio de R$ {{ cliente.ticket_medio|format_brl }}{% endif %}. Abaixo disso, a operação dá prejuízo.
+            </div>
+        </div>
+        
+        <!-- 2. CENÁRIO DE ESTRESSE (-30%) -->
+        <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
+            <div class="card-label">2. Teste de Estresse (Queda de 30% nas Vendas)</div>
+            <div class="value {% if lucro < 0 %}red{% endif %}">
+                Fat.: R$ {{ fat_estresse|format_brl }} &nbsp;|&nbsp; Resultado: R$ {{ lucro|format_brl }}
+            </div>
+            <div class="explain-box">
+                <b>Como chegamos nesse número:</b> Se as vendas caírem 30%, seu faturamento recua de R$ {{ cliente.fat|format_brl }} para <b>R$ {{ fat_estresse|format_brl }}</b>. Aplicando sua margem de {{ "%.1f"|format(margem_pct) }}%, sobram <b>R$ {{ margem_estresse_rs|format_brl }}</b>. Descontando o custo fixo de R$ {{ cliente.fixo|format_brl }}, o resultado mensal passa a ser <b>R$ {{ lucro|format_brl }}</b> (<code>R$ {{ margem_estresse_rs|format_brl }} - R$ {{ cliente.fixo|format_brl }}</code>).
+            </div>
+        </div>
+
+        <!-- 3. PROJEÇÃO NA META -->
+        <div class="card alert-blue">
+            <div class="card-label">3. Projeção na Meta Desejada (R$ {{ meta_fat|format_brl }})</div>
+            <div class="value blue" style="font-size: 22px;">
+                Crescimento de +{{ "%.1f"|format(crescimento_necessario) }}% &nbsp;|&nbsp; Resultado na Meta: <span style="{% if lucro_na_meta < 0 %}color: #c0392b;{% endif %}">R$ {{ lucro_na_meta|format_brl }}</span>
+            </div>
+            <div class="explain-box">
+                <b>Conta da Meta:</b> Faturando <b>R$ {{ meta_fat|format_brl }}</b> com margem de {{ "%.1f"|format(margem_pct) }}%, sua operação gera <b>R$ {{ margem_meta_rs|format_brl }}</b> de margem bruta. Subtraindo o custo fixo de R$ {{ cliente.fixo|format_brl }}, o saldo líquido será de <b>R$ {{ lucro_na_meta|format_brl }}</b>.
+            </div>
+
+            {% if meta_abaixo_pe %}
+            <div class="alerta-meta-pe">
+                ⚠️ <b>Alerta de Meta Insuficiente:</b> Mesmo atingindo sua meta de <b>R$ {{ meta_fat|format_brl }}</b>, a empresa ainda fechará com prejuízo de <b>R$ {{ lucro_na_meta|format_brl }}/mês</b>, pois sua meta está <b>R$ {{ diferenca_meta_pe|format_brl }}</b> abaixo do seu Ponto de Equilíbrio (R$ {{ ponto_equilibrio|format_brl }}).
+            </div>
+            {% endif %}
+
             {% if cliente.ticket_medio > 0 %}
             <div class="engenharia-box">
                 🎯 <strong>Engenharia Reversa Comercial (Ticket Médio R$ {{ cliente.ticket_medio|format_brl }}):</strong><br>
-                Hoje você fecha ~<b>{{ vendas_atuais }} vendas/mês</b>. Para atingir a meta de R$ {{ meta_fat|format_brl }}, você precisa de <b>{{ vendas_meta }} vendas/mês</b> (um incremento de <b>+{{ novas_vendas }} novas vendas</b>).
+                • Hoje você realiza em média <b>{{ vendas_atuais_txt }} vendas/mês</b> (<code>R$ {{ cliente.fat|format_brl }} ÷ R$ {{ cliente.ticket_medio|format_brl }}</code>).<br>
+                • Para atingir <b>R$ {{ meta_fat|format_brl }}</b> (<b>{{ vendas_meta }} vendas/mês</b>), você precisa fechar <b>+{{ novas_vendas }} novas vendas por mês</b>.
                 {% if cliente.tem_conversao and cliente.taxa_conversao > 0 %}
-                <br>Com sua taxa de conversão de <b>{{ cliente.taxa_conversao }}%</b>, o comercial precisa gerar <b>{{ leads_necessarios }} propostas/oportunidades qualificadas por mês</b>.
+                <br>• Com sua taxa de conversão de <b>{{ cliente.taxa_conversao }}%</b>, o comercial precisa gerar <b>{{ leads_necessarios }} propostas/oportunidades qualificadas por mês</b> (<code>{{ vendas_meta }} vendas ÷ {{ cliente.taxa_conversao }}%</code>).
                 {% endif %}
             </div>
             {% endif %}
         </div>
 
+        <!-- 4. RUNWAY DE CAIXA -->
         <div class="card {% if lucro < 0 %}alert-red{% else %}alert-green{% endif %}">
-            <div class="card-label">Status Clínico do Caixa (Runway)</div>
+            <div class="card-label">4. Fôlego Clínico do Caixa (Runway)</div>
             <div class="value {% if lucro < 0 %}red{% endif %}" style="font-size: 18px;">
                 {% if lucro < 0 %}
-                    🔴 CRÍTICO: Hemorragia de caixa. Fôlego para {{ "%.1f"|format(meses_runway) }} meses.
+                    🔴 CRÍTICO: Fôlego para {{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias).
                 {% else %}
                     🟢 ESTÁVEL: Caixa blindado e margem segura na crise.
+                {% endif %}
+            </div>
+            <div class="explain-box">
+                {% if lucro < 0 %}
+                    <b>Como chegamos nesse prazo:</b> Dividindo seu saldo em caixa atual (<b>R$ {{ cliente.caixa|format_brl }}</b>) pela queima mensal projetada no cenário de estresse (<b>R$ {{ lucro_abs|format_brl }}/mês</b>), a reserva se esgota em <b>{{ "%.1f"|format(meses_runway) }} meses</b> (<code>R$ {{ cliente.caixa|format_brl }} ÷ R$ {{ lucro_abs|format_brl }}</code>).
+                {% else %}
+                    <b>Por que está seguro?</b> Mesmo com queda de 30% nas vendas, sua operação continua gerando lucro de <b>R$ {{ lucro|format_brl }}/mês</b> sem precisar consumir os <b>R$ {{ cliente.caixa|format_brl }}</b> guardados em caixa.
                 {% endif %}
             </div>
         </div>
@@ -1050,7 +1114,7 @@ TEMPLATE_DASHBOARD = """
         {% if lucro < 0 %}
         <div class="consequencia">
             <h4>⚠️ CONSEQUÊNCIA DA INAÇÃO</h4>
-            <p>Se as medidas acima não forem aplicadas imediatamente, o capital de giro da empresa será consumido em <strong>{{ "%.1f"|format(meses_runway) }} meses</strong>, resultando em paralisação operacional ou captação de crédito a juros predatórios.</p>
+            <p>Se as medidas acima não forem aplicadas imediatamente, o capital de giro da empresa será consumido em <strong>{{ "%.1f"|format(meses_runway) }} meses (~{{ dias_runway }} dias)</strong>, resultando em paralisação operacional ou captação de crédito a juros predatórios.</p>
         </div>
         {% endif %}
 
@@ -1064,7 +1128,7 @@ TEMPLATE_DASHBOARD = """
 </html>
 """
 
-TEMPLATE_BLOQUEIO = """
+TEMPLATE_BLOQUEIO = r"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1096,21 +1160,46 @@ TEMPLATE_BLOQUEIO = """
 
 def calcular_metricas_laudo(cliente):
     margem_pct = cliente['margem'] if cliente['margem'] > 0 else 30.0
-    fat_estresse = cliente['fat'] * 0.70
-    lucro = (fat_estresse * (margem_pct / 100)) - cliente['fixo']
-    meses_runway = cliente['caixa'] / abs(lucro) if lucro < 0 else 0
-    ponto_equilibrio = cliente['fixo'] / (margem_pct / 100)
+    fator_margem = margem_pct / 100.0
 
+    # 0. Cenário Atual
+    margem_atual_rs = cliente['fat'] * fator_margem
+    lucro_atual = margem_atual_rs - cliente['fixo']
+
+    # 1. Ponto de Equilíbrio
+    ponto_equilibrio = cliente['fixo'] / fator_margem
+
+    # 2. Cenário de Estresse (-30%)
+    fat_estresse = cliente['fat'] * 0.70
+    margem_estresse_rs = fat_estresse * fator_margem
+    lucro = margem_estresse_rs - cliente['fixo']
+    lucro_abs = abs(lucro)
+    meses_runway = cliente['caixa'] / lucro_abs if lucro < 0 else 0
+    dias_runway = round(meses_runway * 30)
+
+    # 3. Projeção na Meta
     meta_fat = cliente['meta_fat']
     crescimento_necessario = ((meta_fat - cliente['fat']) / cliente['fat']) * 100 if cliente['fat'] > 0 else 0
-    lucro_na_meta = (meta_fat * (margem_pct / 100)) - cliente['fixo']
+    margem_meta_rs = meta_fat * fator_margem
+    lucro_na_meta = margem_meta_rs - cliente['fixo']
+    meta_abaixo_pe = meta_fat < ponto_equilibrio
+    diferenca_meta_pe = max(0.0, ponto_equilibrio - meta_fat)
 
+    # 4. Engenharia Reversa Comercial (unificada com Telegram)
     tm = cliente.get('ticket_medio', 0.0)
-    vendas_atuais = math.ceil(cliente['fat'] / tm) if tm > 0 else 0
-    vendas_meta = math.ceil(meta_fat / tm) if tm > 0 else 0
-    vendas_pe = math.ceil(ponto_equilibrio / tm) if tm > 0 else 0
-    novas_vendas = max(0, vendas_meta - vendas_atuais)
-    leads_necessarios = math.ceil(vendas_meta / (cliente['taxa_conversao'] / 100)) if (cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0) else 0
+    if tm > 0:
+        vendas_atuais_dec = cliente['fat'] / tm
+        vendas_atuais_txt = f"{vendas_atuais_dec:.1f}".replace(".", ",")
+        vendas_meta = math.ceil(meta_fat / tm)
+        vendas_pe = math.ceil(ponto_equilibrio / tm)
+        novas_vendas = max(0, math.ceil((meta_fat - cliente['fat']) / tm))
+    else:
+        vendas_atuais_txt = "0"
+        vendas_meta = 0
+        vendas_pe = 0
+        novas_vendas = 0
+
+    leads_necessarios = math.ceil(vendas_meta / (cliente['taxa_conversao'] / 100)) if (cliente.get('tem_conversao') and cliente.get('taxa_conversao', 0) > 0 and vendas_meta > 0) else 0
 
     # Radar de Métricas Cegas vs Controladas
     radar = []
@@ -1178,7 +1267,6 @@ def calcular_metricas_laudo(cliente):
             "descricao": "Risco de descasamento entre prazos de recebimento e pagamento corroer o caixa."
         })
 
-    # Histórico comparativo
     comparativo = None
     hist = cliente.get("historico", [])
     if hist and len(hist) > 0:
@@ -1195,14 +1283,22 @@ def calcular_metricas_laudo(cliente):
 
     return {
         "margem_pct": margem_pct,
+        "margem_atual_rs": margem_atual_rs,
+        "lucro_atual": lucro_atual,
         "fat_estresse": fat_estresse,
+        "margem_estresse_rs": margem_estresse_rs,
         "lucro": lucro,
+        "lucro_abs": lucro_abs,
         "meses_runway": meses_runway,
+        "dias_runway": dias_runway,
         "ponto_equilibrio": ponto_equilibrio,
         "meta_fat": meta_fat,
         "crescimento_necessario": crescimento_necessario,
+        "margem_meta_rs": margem_meta_rs,
         "lucro_na_meta": lucro_na_meta,
-        "vendas_atuais": vendas_atuais,
+        "meta_abaixo_pe": meta_abaixo_pe,
+        "diferenca_meta_pe": diferenca_meta_pe,
+        "vendas_atuais_txt": vendas_atuais_txt,
         "vendas_meta": vendas_meta,
         "vendas_pe": vendas_pe,
         "novas_vendas": novas_vendas,
@@ -1239,7 +1335,7 @@ def renderizar_laudo(cnpj_limpo):
         acao = [
             "<strong>1. REESTRUTURAÇÃO IMEDIATA:</strong> Reduzir custos fixos não essenciais em pelo menos 15%.",
             f"<strong>2. INTELIGÊNCIA COMERCIAL:</strong> {acao_modelo}",
-            "<strong>3. PROTEÇÃO DE CAPITAL:</strong> Congelar antecipações de recebíveis e renegociar prazos com fornecedores."
+            f"<strong>3. ALVO DE EQUILÍBRIO:</strong> Focar na meta mínima de <b>R$ {format_brl(m['ponto_equilibrio'])}/mês</b> ({m['vendas_pe']} vendas) para estancar a queima de caixa."
         ]
     else:
         acao = [
@@ -1378,99 +1474,103 @@ def baixar_pdf(cnpj):
         pdf.set_fill_color(*cor_barra)
         pdf.rect(12, y_topo, 2.5, altura, 'F')
 
-    # 1. Identificação do Paciente
+    # 1. Identificação e Premissas
     y = pdf.get_y()
-    desenhar_card(y, 19, (247, 250, 248), (15, 46, 28))
-    pdf.set_xy(19, y + 3.5)
-    pdf.set_font('helvetica', 'B', 11)
+    desenhar_card(y, 22, (247, 250, 248), (15, 46, 28))
+    pdf.set_xy(19, y + 3)
+    pdf.set_font('helvetica', 'B', 10.5)
     pdf.set_text_color(15, 46, 28)
-    pdf.cell(175, 6, pdf_safe(f"PACIENTE (EMPRESA): {cliente['nome']}"), ln=1)
+    pdf.cell(175, 5.5, pdf_safe(f"PACIENTE (EMPRESA): {cliente['nome']}  |  CNPJ: {format_cnpj(cnpj)}"), ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 9.5)
-    pdf.set_text_color(107, 122, 112)
-    tm_txt = f"  |  Ticket Médio: R$ {format_brl(cliente['ticket_medio'])}" if cliente['ticket_medio'] > 0 else ""
-    pdf.cell(175, 5.5, pdf_safe(f"CNPJ: {format_cnpj(cnpj)}  |  Setor: {cliente['modelo'].upper()}{tm_txt}"), ln=1)
-    pdf.set_y(y + 19 + 6)
+    pdf.set_font('helvetica', '', 8.8)
+    pdf.set_text_color(80, 95, 86)
+    tm_txt = f" | Ticket Médio: R$ {format_brl(cliente['ticket_medio'])}" if cliente['ticket_medio'] > 0 else ""
+    pdf.cell(175, 5, pdf_safe(f"Fat. Atual: R$ {format_brl(cliente['fat'])} | Custo Fixo: R$ {format_brl(cliente['fixo'])} | Margem: {m['margem_pct']:.1f}% | Caixa: R$ {format_brl(cliente['caixa'])}{tm_txt}"), ln=1)
+    pdf.set_x(19)
+    pdf.set_font('helvetica', 'B', 8.8)
+    pdf.set_text_color(192, 57, 43) if m['lucro_atual'] < 0 else pdf.set_text_color(15, 46, 28)
+    pdf.cell(175, 5, pdf_safe(f"Resultado Líquido Hoje: R$ {format_brl(m['lucro_atual'])}/mês (Margem gerada: R$ {format_brl(m['margem_atual_rs'])} - Custo Fixo: R$ {format_brl(cliente['fixo'])})"), ln=1)
+    pdf.set_y(y + 22 + 5)
 
     # 2. Ponto de Equilíbrio
     y = pdf.get_y()
     desenhar_card(y, 24, (235, 245, 251), (41, 128, 185))
     pdf.set_xy(19, y + 3)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font('helvetica', 'B', 8.8)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 5, "PONTO DE EQUILÍBRIO (FATURAMENTO MÍNIMO MENSAL)", ln=1)
+    pdf.cell(175, 4.5, "1. PONTO DE EQUILÍBRIO (FATURAMENTO MÍNIMO MENSAL)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 16)
+    pdf.set_font('helvetica', 'B', 15)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 7.5, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
+    pdf.cell(175, 7, f"R$ {format_brl(m['ponto_equilibrio'])}", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 8)
-    pdf.set_text_color(107, 122, 112)
-    pe_vendas = f" ({m['vendas_pe']} vendas/mês no ticket médio atual)" if m['vendas_pe'] > 0 else ""
-    pdf.cell(175, 4.5, pdf_safe(f"Faturamento mínimo para cobrir custos fixos e variáveis sem prejuízo{pe_vendas}."), ln=1)
-    pdf.set_y(y + 24 + 6)
+    pdf.set_font('helvetica', '', 8.2)
+    pdf.set_text_color(60, 70, 75)
+    pe_vendas = f" = {m['vendas_pe']} vendas/mês" if m['vendas_pe'] > 0 else ""
+    pdf.cell(175, 4.5, pdf_safe(f"Conta: Custo Fixo (R$ {format_brl(cliente['fixo'])}) / Margem ({m['margem_pct']:.1f}%) = R$ {format_brl(m['ponto_equilibrio'])}{pe_vendas} para empatar."), ln=1)
+    pdf.set_y(y + 24 + 5)
 
     # 3. Cenário de Estresse
     y = pdf.get_y()
     bg_color = (253, 237, 236) if is_critical else (232, 247, 238)
     bar_color = (192, 57, 43) if is_critical else (0, 200, 83)
     val_color = (192, 57, 43) if is_critical else (15, 46, 28)
-    status_text = "PREJUÍZO / QUEIMA DE CAIXA" if is_critical else "CAIXA BLINDADO"
     desenhar_card(y, 27, bg_color, bar_color)
     pdf.set_xy(19, y + 3)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font('helvetica', 'B', 8.8)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 5, "DIAGNÓSTICO DE ESTRESSE (CENÁRIO DE QUEDA DE 30% NO FATURAMENTO)", ln=1)
+    pdf.cell(175, 4.5, "2. TESTE DE ESTRESSE (CENÁRIO DE QUEDA DE 30% NAS VENDAS)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 9.5)
-    pdf.set_text_color(50, 50, 50)
-    pdf.cell(175, 5.5, f"Faturamento Projetado: R$ {format_brl(m['fat_estresse'])}   |   Lucro Líquido Projetado:", ln=1)
-    pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 14.5)
+    pdf.set_font('helvetica', 'B', 13.5)
     pdf.set_text_color(*val_color)
-    pdf.cell(175, 8, f"R$ {format_brl(m['lucro'])}   ({status_text})", ln=1)
-    pdf.set_y(y + 27 + 6)
+    pdf.cell(175, 7.5, f"Fat. Estresse: R$ {format_brl(m['fat_estresse'])}   |   Resultado: R$ {format_brl(m['lucro'])}/mês", ln=1)
+    pdf.set_x(19)
+    pdf.set_font('helvetica', '', 8.2)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(175, 4.5, pdf_safe(f"Conta: Fat. (-30%) gera R$ {format_brl(m['margem_estresse_rs'])} de margem ({m['margem_pct']:.1f}%) - Custo Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro'])}."), ln=1)
+    pdf.set_y(y + 27 + 5)
 
     # 4. Projeção na Meta + Engenharia Reversa
     y = pdf.get_y()
-    alt_meta = 31 if cliente['ticket_medio'] > 0 else 24
+    alt_meta = 32 if cliente['ticket_medio'] > 0 else 25
     desenhar_card(y, alt_meta, (235, 245, 251), (41, 128, 185))
     pdf.set_xy(19, y + 3)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font('helvetica', 'B', 8.8)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 5, f"PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
+    pdf.cell(175, 4.5, f"3. PROJEÇÃO NA META DESEJADA (R$ {format_brl(m['meta_fat'])})", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', 'B', 11.5)
+    pdf.set_font('helvetica', 'B', 11)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 6.5, f"Crescimento Necessário: +{m['crescimento_necessario']:.1f}%  |  Lucro Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}", ln=1)
+    pdf.cell(175, 6.5, f"Crescimento: +{m['crescimento_necessario']:.1f}%  |  Resultado Líquido na Meta: R$ {format_brl(m['lucro_na_meta'])}/mês", ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8)
-    pdf.set_text_color(107, 122, 112)
-    pdf.cell(175, 4.5, f"Projeção mantendo estrutura atual e margem de contribuição de {m['margem_pct']}%.", ln=1)
+    pdf.set_text_color(60, 70, 75)
+    aviso_pe_pdf = " [ATENÇÃO: Meta abaixo do Ponto de Equilíbrio!]" if m['meta_abaixo_pe'] else ""
+    pdf.cell(175, 4.5, pdf_safe(f"Conta: Margem na meta (R$ {format_brl(m['margem_meta_rs'])}) - Fixo (R$ {format_brl(cliente['fixo'])}) = R$ {format_brl(m['lucro_na_meta'])}.{aviso_pe_pdf}"), ln=1)
     if cliente['ticket_medio'] > 0:
         pdf.set_x(19)
-        pdf.set_font('helvetica', 'B', 8.5)
+        pdf.set_font('helvetica', 'B', 8.3)
         pdf.set_text_color(27, 79, 114)
-        conv_txt = f" | Leads/mês necessários: {m['leads_necessarios']}" if m['leads_necessarios'] > 0 else ""
-        pdf.cell(175, 5, pdf_safe(f"Engenharia Comercial: {m['vendas_atuais']} vendas/mês atuais -> {m['vendas_meta']} vendas/mês na meta (+{m['novas_vendas']} novas vendas){conv_txt}"), ln=1)
-    pdf.set_y(y + alt_meta + 6)
+        conv_txt = f" | Propostas/mês necessárias ({cliente['taxa_conversao']}%): {m['leads_necessarios']}" if m['leads_necessarios'] > 0 else ""
+        pdf.cell(175, 5, pdf_safe(f"Comercial: {m['vendas_atuais_txt']} vendas atuais -> {m['vendas_meta']} vendas na meta (+{m['novas_vendas']} novas vendas/mês){conv_txt}"), ln=1)
+    pdf.set_y(y + alt_meta + 5)
 
     # 5. Runway
     y = pdf.get_y()
-    desenhar_card(y, 21, bg_color, bar_color)
+    desenhar_card(y, 22, bg_color, bar_color)
     pdf.set_xy(19, y + 3)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font('helvetica', 'B', 8.8)
     pdf.set_text_color(93, 109, 126)
-    pdf.cell(175, 5, "FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
+    pdf.cell(175, 4.5, "4. FÔLEGO FINANCEIRO (RUNWAY DE CAIXA)", ln=1)
     pdf.set_x(19)
-    pdf.set_font('helvetica', '', 9.5)
+    pdf.set_font('helvetica', '', 8.8)
     pdf.set_text_color(40, 40, 40)
     if is_critical:
-        texto_runway = f"ALERTA: O caixa atual (R$ {format_brl(cliente['caixa'])}) suporta apenas {m['meses_runway']:.1f} meses operando neste cenário de estresse."
+        texto_runway = f"CRÍTICO: Caixa (R$ {format_brl(cliente['caixa'])}) / Queima no estresse (R$ {format_brl(m['lucro_abs'])}/mês) = {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias) de fôlego."
     else:
-        texto_runway = f"ESTÁVEL: A empresa possui margem suficiente para absorver a queda sem queimar o caixa (R$ {format_brl(cliente['caixa'])})."
-    pdf.multi_cell(175, 5, texto_runway)
-    pdf.set_y(y + 21 + 6)
+        texto_runway = f"ESTÁVEL: Mesmo com queda de 30%, a empresa gera lucro e preserva os R$ {format_brl(cliente['caixa'])} em caixa."
+    pdf.multi_cell(175, 4.8, pdf_safe(texto_runway))
+    pdf.set_y(y + 22 + 5)
 
     # 6. Prescrição Estratégica
     modelo = cliente.get('modelo', 'produtos')
@@ -1487,38 +1587,38 @@ def baixar_pdf(cnpj):
     itens_prescricao = [
         ("1. REESTRUTURAÇÃO IMEDIATA: ", "Reduzir custos fixos não essenciais em pelo menos 15%."),
         ("2. INTELIGÊNCIA COMERCIAL: ", acao_modelo),
-        ("3. PROTEÇÃO DE CAPITAL: ", "Congelar antecipações de recebíveis e renegociar prazos com fornecedores.")
+        ("3. ALVO DE EQUILÍBRIO: ", f"Focar na meta mínima de R$ {format_brl(m['ponto_equilibrio'])}/mês ({m['vendas_pe']} vendas) para estancar a queima de caixa.")
     ] if is_critical else [
         ("1. EXPANSÃO ESTRATÉGICA: ", "Utilizar a resiliência do caixa para campanhas de aquisição de novos clientes."),
         ("2. BLINDAGEM DE MARGEM: ", acao_modelo),
         ("3. ESCALA DE VENDAS: ", f"Subir a régua de contatos diários focando em atingir a meta de R$ {format_brl(m['meta_fat'])}{txt_meta_vendas}.")
     ]
 
-    pdf.set_font('helvetica', '', 9.5)
+    pdf.set_font('helvetica', '', 9.2)
     altura_texto_presc = 0
     for tit, desc in itens_prescricao:
         linhas = max(1, math.ceil(pdf.get_string_width(tit + desc) / 170))
-        altura_texto_presc += (linhas * 5.2) + 2.5
-    altura_card_presc = 15 + altura_texto_presc
+        altura_texto_presc += (linhas * 5.0) + 2.2
+    altura_card_presc = 14 + altura_texto_presc
 
     y = pdf.get_y()
     desenhar_card(y, altura_card_presc, (15, 46, 28), (0, 200, 83))
-    pdf.set_xy(19, y + 4.5)
-    pdf.set_font('helvetica', 'B', 11)
+    pdf.set_xy(19, y + 4)
+    pdf.set_font('helvetica', 'B', 10.5)
     pdf.set_text_color(0, 200, 83)
-    pdf.cell(175, 6, "PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)", ln=1)
+    pdf.cell(175, 5.5, "PRESCRIÇÃO ESTRATÉGICA (O QUE FAZER AGORA?)", ln=1)
 
     pdf.set_left_margin(19)
     pdf.set_right_margin(16)
-    pdf.set_y(y + 12.5)
+    pdf.set_y(y + 11.5)
     pdf.set_text_color(245, 248, 246)
     for tit, desc in itens_prescricao:
         pdf.set_x(19)
-        pdf.set_font('helvetica', 'B', 9.5)
-        pdf.write(5.2, pdf_safe(tit))
-        pdf.set_font('helvetica', '', 9.5)
-        pdf.write(5.2, pdf_safe(desc + "\n"))
-        pdf.ln(2.2)
+        pdf.set_font('helvetica', 'B', 9.2)
+        pdf.write(5.0, pdf_safe(tit))
+        pdf.set_font('helvetica', '', 9.2)
+        pdf.write(5.0, pdf_safe(desc + "\n"))
+        pdf.ln(2.0)
 
     pdf.set_left_margin(12)
     pdf.set_right_margin(12)
@@ -1529,16 +1629,16 @@ def baixar_pdf(cnpj):
     altura_card_cegas = 98
     is_all_ok = m['qtd_cegas'] == 0
 
-    pdf.set_fill_color(*( (240, 253, 244) if is_all_ok else (255, 245, 245) ))
-    pdf.set_draw_color(*( (0, 200, 83) if is_all_ok else (220, 76, 62) ))
+    pdf.set_fill_color(*((240, 253, 244) if is_all_ok else (255, 245, 245)))
+    pdf.set_draw_color(*((0, 200, 83) if is_all_ok else (220, 76, 62)))
     pdf.set_line_width(0.5)
     pdf.rect(12, y, 186, altura_card_cegas, 'DF')
-    pdf.set_fill_color(*( (0, 200, 83) if is_all_ok else (192, 57, 43) ))
+    pdf.set_fill_color(*((0, 200, 83) if is_all_ok else (192, 57, 43)))
     pdf.rect(12, y, 3.5, altura_card_cegas, 'F')
 
     pdf.set_xy(20, y + 5)
     pdf.set_font('helvetica', 'B', 12)
-    pdf.set_text_color(*( (15, 46, 28) if is_all_ok else (192, 57, 43) ))
+    pdf.set_text_color(*((15, 46, 28) if is_all_ok else (192, 57, 43)))
     titulo_radar = "RADAR DE INDICADORES: 100% MONITORADO" if is_all_ok else f"ALERTA CRÍTICO: {m['qtd_cegas']} DE 4 MÉTRICAS CEGAS NA OPERAÇÃO"
     pdf.cell(172, 6.5, titulo_radar, ln=1)
 
@@ -1552,14 +1652,14 @@ def baixar_pdf(cnpj):
         y_item = pdf.get_y()
         ok_m = item['controlada']
         pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*( (183, 228, 199) if ok_m else (245, 183, 177) ))
+        pdf.set_draw_color(*((183, 228, 199) if ok_m else (245, 183, 177)))
         pdf.set_line_width(0.3)
         pdf.rect(20, y_item, 172, 13.5, 'DF')
-        pdf.set_fill_color(*( (0, 200, 83) if ok_m else (192, 57, 43) ))
+        pdf.set_fill_color(*((0, 200, 83) if ok_m else (192, 57, 43)))
         pdf.rect(20, y_item, 2, 13.5, 'F')
         pdf.set_xy(24, y_item + 2)
         pdf.set_font('helvetica', 'B', 9.5)
-        pdf.set_text_color(*( (15, 46, 28) if ok_m else (192, 57, 43) ))
+        pdf.set_text_color(*((15, 46, 28) if ok_m else (192, 57, 43)))
         status_tag = "[CONTROLADO] " if ok_m else "[CEGO] "
         pdf.cell(165, 4.5, pdf_safe(status_tag + item['titulo']), ln=1)
         pdf.set_x(24)
@@ -1570,7 +1670,7 @@ def baixar_pdf(cnpj):
 
     pdf.set_x(20)
     pdf.set_font('helvetica', 'B', 9.5)
-    pdf.set_text_color(*( (15, 46, 28) if is_all_ok else (146, 43, 33) ))
+    pdf.set_text_color(*((15, 46, 28) if is_all_ok else (146, 43, 33)))
     rodape_radar = "Excelente visibilidade de dados. O foco agora é otimizar conversão e margem." if is_all_ok else "Operar sem esses números significa queimar margem todos os dias sem perceber."
     pdf.cell(172, 6, rodape_radar, ln=1)
     pdf.set_y(y + altura_card_cegas + 9)
@@ -1585,7 +1685,7 @@ def baixar_pdf(cnpj):
         pdf.set_x(19)
         pdf.set_font('helvetica', '', 9.2)
         pdf.set_text_color(50, 50, 50)
-        pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {m['meses_runway']:.1f} meses, exigindo captação de crédito a juros predatórios.")
+        pdf.multi_cell(175, 4.8, f"Se as medidas acima não forem aplicadas imediatamente, o capital de giro será consumido em {m['meses_runway']:.1f} meses (~{m['dias_runway']} dias), exigindo captação de crédito a juros predatórios.")
         pdf.set_y(y_cons + 24 + 10)
 
     y_btn = pdf.get_y()
