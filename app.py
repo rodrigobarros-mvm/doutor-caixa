@@ -685,7 +685,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 720px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.9</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v6.0</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -716,9 +716,11 @@ TEMPLATE_HOME = r"""
         .subtitle { color: #6B7A70; font-size: 13.5px; margin: 0 0 22px 0; line-height: 1.5; }
         .btn-primary { display: block; background: #00C853; color: #FFFFFF; padding: 16px; width: 100%; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15.5px; transition: background 0.2s; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); }
         .btn-primary:hover { background: #00a645; }
-        .btn-wpp-home { display: block; background: #E8F7EE; color: #0F2E1C; border: 1.5px solid #00C853; padding: 13px; width: 100%; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; margin-top: 10px; transition: background 0.2s; }
+        .btn-exemplo { display: block; background: #f4f8f6; color: #0F2E1C; border: 1.5px solid #cfe0d6; padding: 12px; width: 100%; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 13.5px; margin-top: 10px; transition: background 0.2s; }
+        .btn-exemplo:hover { background: #e6f0ea; }
+        .btn-wpp-home { display: block; background: #E8F7EE; color: #0F2E1C; border: 1.5px solid #00C853; padding: 12px; width: 100%; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 13.5px; margin-top: 10px; transition: background 0.2s; }
         .btn-wpp-home:hover { background: #d4f0df; }
-        .divider { display: flex; align-items: center; text-align: center; margin: 24px 0 18px 0; color: #8a9990; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+        .divider { display: flex; align-items: center; text-align: center; margin: 22px 0 16px 0; color: #8a9990; font-size: 12px; font-weight: 600; text-transform: uppercase; }
         .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #e2ece6; }
         .divider:not(:empty)::before { margin-right: 10px; }
         .divider:not(:empty)::after { margin-left: 10px; }
@@ -727,7 +729,7 @@ TEMPLATE_HOME = r"""
         .btn-secondary { background: #0F2E1C; color: #FFFFFF; padding: 14px; width: 100%; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: 'Poppins', sans-serif; font-size: 14.5px; }
         .btn-secondary:hover { background: #18442a; }
         .erro-msg { background: #fdecea; color: #c0392b; font-size: 13px; padding: 10px; border-radius: 6px; margin-bottom: 14px; font-weight: 600; word-break: break-word; }
-        .footer-seal { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eef4f0; font-size: 11px; color: #7c8b82; line-height: 1.5; }
+        .footer-seal { margin-top: 22px; padding-top: 16px; border-top: 1px solid #eef4f0; font-size: 11px; color: #7c8b82; line-height: 1.5; }
         .footer-seal strong { color: #0F2E1C; }
         @media (max-width: 480px) { body { background: #FFFFFF; padding: 0; align-items: flex-start; } .login-box { box-shadow: none; border-radius: 0; padding: 32px 20px; max-width: 100%; } }
     </style>
@@ -739,6 +741,7 @@ TEMPLATE_HOME = r"""
         <p class="subtitle">Descubra em 2 minutos quanto tempo sua empresa aguenta se as vendas caírem 30% e receba um plano prático para vender mais e proteger seu lucro.</p>
         
         <a href="{{ diagnostico_url }}" id="btn_diagnostico" class="btn-primary">🚀 Fazer Meu Diagnóstico Gratuito</a>
+        <a href="/laudo/11222333000181" class="btn-exemplo">👀 Ver Exemplo de Laudo Pronto</a>
         <a href="{{ wpp_home_url }}" target="_blank" class="btn-wpp-home">💬 Falar no WhatsApp</a>
 
         <div class="divider">Já possui laudo?</div>
@@ -776,53 +779,6 @@ TEMPLATE_HOME = r"""
             }
         })();
     </script>
-</body>
-</html>
-"""
-
-TEMPLATE_SUCESSO = r"""
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doutor Caixa | Sucesso</title>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; }
-        body { font-family: 'Poppins', sans-serif; background: #E8F7EE; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 16px; color: #0F2E1C; }
-        .box { background: #FFFFFF; padding: 40px 30px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); text-align: center; max-width: 440px; width: 100%; }
-        .box h1 { color: #00C853; margin: 0 0 10px 0; font-size: 24px; }
-        .box p { color: #6B7A70; font-size: 14.5px; line-height: 1.5; margin-bottom: 20px; }
-        .alert-box { background: #f0fdf4; border: 2px solid #00C853; padding: 16px; border-radius: 10px; margin-bottom: 20px; }
-        .alert-box strong { color: #0F2E1C; display: block; font-size: 15px; margin-bottom: 4px; }
-        .alert-box span { color: #145c32; font-size: 13px; line-height: 1.45; display: block; }
-        .btn-laudo-agora { display: block; background: #00C853; color: #FFFFFF; padding: 17px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.28); transition: background 0.2s; }
-        .btn-laudo-agora:hover { background: #00a645; }
-        .btn { display: block; background: #0F2E1C; color: #FFFFFF; padding: 14px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; }
-        .footer-brand { margin-top: 20px; padding-top: 14px; border-top: 1px solid #eef4f0; font-size: 10.5px; color: #7c8b82; }
-        .footer-brand strong { color: #0F2E1C; }
-    </style>
-</head>
-<body>
-    <div class="box">
-        <h1>✅ Laudo Gerado com Sucesso!</h1>
-        <p>Analisamos todos os números da sua empresa e preparamos o seu plano de ação completo.</p>
-        
-        <div class="alert-box">
-            <strong>Cópia vinculada ao WhatsApp {{ whatsapp }}</strong>
-            <span>Seu diagnóstico já está liberado abaixo e você também poderá consultar a qualquer momento usando seu CNPJ.</span>
-        </div>
-
-        <a href="/laudo/{{ cnpj }}" class="btn-laudo-agora">📄 Abrir Meu Laudo Agora</a>
-        <a href="/" class="btn">Voltar para a Tela Inicial</a>
-
-        <div class="footer-brand">
-            Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
-        </div>
-    </div>
 </body>
 </html>
 """
@@ -868,6 +824,9 @@ TEMPLATE_DIAGNOSTICO = r"""
         .cnpj-feedback { display: block; font-size: 11.5px; color: #00a645; font-weight: 600; margin-top: 5px; min-height: 16px; }
         input[type="text"], input[type="tel"], input[type="number"], select { width: 100%; padding: 13px 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14.5px; color: #0F2E1C; outline: none; background: #FFFFFF; transition: 0.2s; }
         input:focus, select:focus { border-color: #00C853; }
+        .input-erro { border-color: #e74c3c !important; background-color: #fffafa !important; }
+        .field-error { display: none; color: #c0392b; font-size: 11.5px; font-weight: 600; margin-top: 5px; line-height: 1.35; }
+        .field-error.visible { display: block; }
         .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
         .wpp-box { background: #fff9e6; border: 1.5px solid #f39c12; padding: 14px; border-radius: 10px; margin-bottom: 16px; }
@@ -900,6 +859,7 @@ TEMPLATE_DIAGNOSTICO = r"""
         .btn-prev:hover { background: #e1ece6; }
         .btn-next { background: #00C853; color: #FFFFFF; border: none; padding: 16px 22px; border-radius: 10px; font-family: 'Poppins', sans-serif; font-size: 15.5px; font-weight: 700; cursor: pointer; flex: 2; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.25); transition: 0.2s; }
         .btn-next:hover { background: #00a645; }
+        .btn-next:disabled { background: #00a645; cursor: wait; opacity: 0.85; }
 
         .sigilo-box { margin-top: 18px; background: #f7faf8; padding: 12px; border-radius: 8px; font-size: 11px; color: #6B7A70; text-align: center; line-height: 1.45; }
         .brand-footer { margin-top: 7px; padding-top: 7px; border-top: 1px solid #e3ece7; font-size: 10.5px; color: #5f6f65; }
@@ -945,12 +905,14 @@ TEMPLATE_DIAGNOSTICO = r"""
                 <div class="field-group">
                     <label>CNPJ Válido (Somente números)</label>
                     <input type="text" name="cnpj" id="cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+                    <span class="field-error" id="err_cnpj"></span>
                     <span class="cnpj-feedback" id="cnpj_status"></span>
                 </div>
 
                 <div class="field-group">
                     <label>Nome da Empresa</label>
                     <input type="text" name="nome" id="empresa_nome" placeholder="Ex: Distribuidora Recife Ltda">
+                    <span class="field-error" id="err_empresa_nome"></span>
                 </div>
 
                 <div class="field-group">
@@ -994,12 +956,14 @@ TEMPLATE_DIAGNOSTICO = r"""
                         <label>Dinheiro em Caixa Hoje (R$)</label>
                         <span class="hint">Saldo disponível na conta + espécie</span>
                         <input type="text" name="caixa" id="inp_caixa" class="moeda" inputmode="numeric" placeholder="120.000,00">
+                        <span class="field-error" id="err_inp_caixa"></span>
                     </div>
 
                     <div class="field-group">
                         <label>Faturamento Médio Mensal (R$)</label>
                         <span class="hint">Total que entra de vendas por mês</span>
                         <input type="text" name="fat" id="inp_fat" class="moeda" inputmode="numeric" placeholder="300.000,00">
+                        <span class="field-error" id="err_inp_fat"></span>
                     </div>
                 </div>
 
@@ -1008,12 +972,14 @@ TEMPLATE_DIAGNOSTICO = r"""
                         <label>Despesas Fixas Mensais (R$)</label>
                         <span class="hint">Aluguel, folha, energia, sistemas</span>
                         <input type="text" name="fixo" id="inp_fixo" class="moeda" inputmode="numeric" placeholder="95.000,00">
+                        <span class="field-error" id="err_inp_fixo"></span>
                     </div>
 
                     <div class="field-group">
                         <label>Margem que Sobra por Venda (%)</label>
                         <span class="hint">O que sobra após pagar produto/imposto/comissão</span>
                         <input type="number" step="0.1" min="1" max="100" name="margem" id="inp_margem" inputmode="decimal" placeholder="Ex: 38">
+                        <span class="field-error" id="err_inp_margem"></span>
                     </div>
                 </div>
 
@@ -1022,12 +988,14 @@ TEMPLATE_DIAGNOSTICO = r"""
                         <label>Valor Médio por Venda (R$)</label>
                         <span class="hint">Ticket médio de cada venda ou contrato</span>
                         <input type="text" name="ticket_medio" id="inp_ticket" class="moeda" inputmode="numeric" placeholder="2.500,00">
+                        <span class="field-error" id="err_inp_ticket"></span>
                     </div>
 
                     <div class="field-group">
                         <label>Meta de Faturamento Mensal (R$)</label>
                         <span class="hint">Quanto você quer faturar por mês</span>
                         <input type="text" name="meta_fat" id="inp_meta" class="moeda" inputmode="numeric" placeholder="450.000,00">
+                        <span class="field-error" id="err_inp_meta"></span>
                     </div>
                 </div>
 
@@ -1070,6 +1038,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <div class="metric-input-box" id="box_cac">
                         <label>Custo médio por cliente conquistado (R$)</label>
                         <input type="text" name="cac" id="input_cac" class="moeda" inputmode="numeric" placeholder="Ex: 350,00">
+                        <span class="field-error" id="err_input_cac"></span>
                     </div>
                 </div>
 
@@ -1087,6 +1056,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <div class="metric-input-box" id="box_ltv">
                         <label>Valor médio total por cliente (R$)</label>
                         <input type="text" name="ltv" id="input_ltv" class="moeda" inputmode="numeric" placeholder="Ex: 4.800,00">
+                        <span class="field-error" id="err_input_ltv"></span>
                     </div>
                 </div>
 
@@ -1104,6 +1074,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <div class="metric-input-box" id="box_conv">
                         <label>Percentual de fechamento (%)</label>
                         <input type="number" step="0.1" min="0.1" max="100" name="taxa_conversao" id="input_conv" inputmode="decimal" placeholder="Ex: 20">
+                        <span class="field-error" id="err_input_conv"></span>
                     </div>
                 </div>
 
@@ -1121,6 +1092,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <div class="metric-input-box" id="box_ciclo">
                         <label>Diferença de prazo em dias</label>
                         <input type="number" step="1" name="ciclo_financeiro" id="input_ciclo" inputmode="numeric" placeholder="Ex: 35">
+                        <span class="field-error" id="err_input_ciclo"></span>
                     </div>
                 </div>
 
@@ -1139,6 +1111,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <div class="field-group">
                         <label>Seu Nome</label>
                         <input type="text" name="nome_pessoa" id="inp_nome_pessoa" placeholder="Ex: Rodrigo Barros">
+                        <span class="field-error" id="err_inp_nome_pessoa"></span>
                     </div>
                     <div class="field-group">
                         <label>Seu Cargo</label>
@@ -1149,6 +1122,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                             <option value="Gerente Financeiro">Gerente Financeiro</option>
                             <option value="Outros">Outros</option>
                         </select>
+                        <span class="field-error" id="err_inp_cargo"></span>
                     </div>
                 </div>
 
@@ -1156,11 +1130,12 @@ TEMPLATE_DIAGNOSTICO = r"""
                     <label>Seu WhatsApp com DDD</label>
                     <span class="hint-alert">⚠️ Importante: Informe seu WhatsApp ativo para vincular e liberar o acesso ao seu Laudo e PDF.</span>
                     <input type="tel" name="whatsapp" id="whatsapp" placeholder="(81) 99999-9999">
+                    <span class="field-error" id="err_whatsapp"></span>
                 </div>
 
                 <div class="nav-buttons">
-                    <button type="button" class="btn-prev" onclick="irParaEtapa(3)">← Voltar</button>
-                    <button type="submit" class="btn-next">📊 Receber Meu Laudo Financeiro</button>
+                    <button type="button" class="btn-prev" id="btn_prev_etapa4" onclick="irParaEtapa(3)">← Voltar</button>
+                    <button type="submit" class="btn-next" id="btn_submit_final">📊 Receber Meu Laudo Financeiro</button>
                 </div>
             </div>
 
@@ -1204,6 +1179,39 @@ TEMPLATE_DIAGNOSTICO = r"""
 
         let ultimoCnpjBuscado = "";
         let nomeAutoPreenchido = false;
+
+        function limparErros() {
+            document.querySelectorAll('.input-erro').forEach(el => el.classList.remove('input-erro'));
+            document.querySelectorAll('.field-error').forEach(el => {
+                el.innerText = '';
+                el.classList.remove('visible');
+            });
+        }
+
+        function mostrarErroCampo(el, msg) {
+            if (!el) return;
+            el.classList.add('input-erro');
+            const errSpan = document.getElementById('err_' + el.id);
+            if (errSpan) {
+                errSpan.innerText = msg;
+                errSpan.classList.add('visible');
+            }
+            el.focus();
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        document.querySelectorAll('input, select').forEach(el => {
+            const limparEste = () => {
+                el.classList.remove('input-erro');
+                const errSpan = document.getElementById('err_' + el.id);
+                if (errSpan) {
+                    errSpan.innerText = '';
+                    errSpan.classList.remove('visible');
+                }
+            };
+            el.addEventListener('input', limparEste);
+            el.addEventListener('change', limparEste);
+        });
 
         function parseMoedaJS(val) {
             if (!val) return 0;
@@ -1264,6 +1272,9 @@ TEMPLATE_DIAGNOSTICO = r"""
                 if (nomeOficial && (!nomeEl.value.trim() || nomeAutoPreenchido)) {
                     nomeEl.value = nomeOficial;
                     nomeAutoPreenchido = true;
+                    nomeEl.classList.remove('input-erro');
+                    const errNome = document.getElementById('err_empresa_nome');
+                    if (errNome) { errNome.innerText = ''; errNome.classList.remove('visible'); }
                 }
                 document.getElementById('inp_cidade').value = municipio;
                 document.getElementById('inp_uf').value = uf;
@@ -1285,17 +1296,16 @@ TEMPLATE_DIAGNOSTICO = r"""
         });
 
         function validarEtapaAtual(etapaAtual) {
+            limparErros();
             if (etapaAtual === 1) {
                 let cnpjInput = document.getElementById('cnpj');
                 if (!validarCNPJ(cnpjInput.value)) {
-                    alert("O CNPJ informado é inválido. Por favor, confira os números.");
-                    cnpjInput.focus();
+                    mostrarErroCampo(cnpjInput, "CNPJ inválido. Confira os 14 dígitos.");
                     return false;
                 }
                 let emp = document.getElementById('empresa_nome');
                 if (!emp.value.trim()) {
-                    alert("Por favor, informe o nome da empresa.");
-                    emp.focus();
+                    mostrarErroCampo(emp, "Informe o nome da empresa.");
                     return false;
                 }
             }
@@ -1307,13 +1317,13 @@ TEMPLATE_DIAGNOSTICO = r"""
                 let ticket = document.getElementById('inp_ticket');
                 let meta = document.getElementById('inp_meta');
 
-                if (!caixa.value.trim()) { alert("Informe o dinheiro em caixa hoje."); caixa.focus(); return false; }
-                if (parseMoedaJS(fat.value) <= 0) { alert("Informe o faturamento médio mensal."); fat.focus(); return false; }
-                if (parseMoedaJS(fixo.value) <= 0) { alert("Informe as despesas fixas mensais."); fixo.focus(); return false; }
+                if (!caixa.value.trim()) { mostrarErroCampo(caixa, "Informe o dinheiro em caixa hoje (pode ser 0,00)."); return false; }
+                if (parseMoedaJS(fat.value) <= 0) { mostrarErroCampo(fat, "Informe o faturamento médio mensal."); return false; }
+                if (parseMoedaJS(fixo.value) <= 0) { mostrarErroCampo(fixo, "Informe as despesas fixas mensais."); return false; }
                 let mVal = parseFloat(margem.value);
-                if (!mVal || mVal <= 0 || mVal > 100) { alert("Informe a margem que sobra por venda (entre 1% e 100%)."); margem.focus(); return false; }
-                if (parseMoedaJS(ticket.value) <= 0) { alert("Informe o valor médio por venda."); ticket.focus(); return false; }
-                if (parseMoedaJS(meta.value) <= 0) { alert("Informe a meta de faturamento mensal."); meta.focus(); return false; }
+                if (!mVal || mVal <= 0 || mVal > 100) { mostrarErroCampo(margem, "Informe a margem entre 1% e 100%."); return false; }
+                if (parseMoedaJS(ticket.value) <= 0) { mostrarErroCampo(ticket, "Informe o valor médio por venda."); return false; }
+                if (parseMoedaJS(meta.value) <= 0) { mostrarErroCampo(meta, "Informe a meta de faturamento mensal."); return false; }
             }
             if (etapaAtual === 3) {
                 const keys = ['cac', 'ltv', 'conv', 'ciclo'];
@@ -1321,8 +1331,7 @@ TEMPLATE_DIAGNOSTICO = r"""
                     let chk = document.getElementById('toggle_' + k);
                     let inp = document.getElementById('input_' + k);
                     if (chk.checked && !inp.value.trim()) {
-                        alert("Você ativou um indicador. Preencha o valor dele ou desative a chave.");
-                        inp.focus();
+                        mostrarErroCampo(inp, "Preencha este valor ou desative a chave acima.");
                         return false;
                     }
                 }
@@ -1350,26 +1359,34 @@ TEMPLATE_DIAGNOSTICO = r"""
         }
 
         function validarEtapa4() {
+            limparErros();
             let nomeP = document.getElementById('inp_nome_pessoa');
             let cargo = document.getElementById('inp_cargo');
             let wppInput = document.getElementById('whatsapp');
 
             if (!nomeP.value.trim()) {
-                alert("Por favor, informe o seu nome.");
-                nomeP.focus();
+                mostrarErroCampo(nomeP, "Informe o seu nome.");
                 return false;
             }
             if (!cargo.value) {
-                alert("Por favor, selecione o seu cargo.");
-                cargo.focus();
+                mostrarErroCampo(cargo, "Selecione o seu cargo.");
                 return false;
             }
             let wpp = wppInput.value.replace(/\D/g, '');
             let regexCelularBR = /^[1-9]{2}9\d{8}$/;
             if (!regexCelularBR.test(wpp)) {
-                alert("Por favor, insira um número de WhatsApp válido com DDD (ex: 81 99999-9999).");
-                wppInput.focus();
+                mostrarErroCampo(wppInput, "Informe um celular válido com DDD (ex: 81 99999-9999).");
                 return false;
+            }
+
+            const btnSub = document.getElementById('btn_submit_final');
+            const btnPrev = document.getElementById('btn_prev_etapa4');
+            if (btnSub) {
+                btnSub.disabled = true;
+                btnSub.innerText = '⏳ Gerando seu diagnóstico...';
+            }
+            if (btnPrev) {
+                btnPrev.style.display = 'none';
             }
             return true;
         }
@@ -1410,6 +1427,9 @@ TEMPLATE_DIAGNOSTICO = r"""
                 box.classList.remove('visible');
                 card.classList.remove('active');
                 inp.value = '';
+                inp.classList.remove('input-erro');
+                const errSpan = document.getElementById('err_' + inp.id);
+                if (errSpan) { errSpan.innerText = ''; errSpan.classList.remove('visible'); }
             }
         }
 
@@ -1619,6 +1639,8 @@ TEMPLATE_DASHBOARD = r"""
         * { box-sizing: border-box; }
         body { font-family: 'Poppins', sans-serif; background: var(--menta-suave); margin: 0; padding: 24px 16px; color: var(--verde-profundo); -webkit-font-smoothing: antialiased; }
         .container { max-width: 820px; margin: 0 auto; background: var(--branco); padding: 36px; border-radius: 14px; box-shadow: 0 6px 20px rgba(15, 46, 28, 0.06); }
+        .banner-novo { background: #f0fdf4; border: 1.5px solid #00C853; color: #0F2E1C; padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13.5px; line-height: 1.45; }
+        .banner-novo strong { color: #00a645; }
         .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--menta-suave); padding-bottom: 18px; margin-bottom: 24px; gap: 16px; }
         .logo { max-width: 150px; height: auto; }
         .header-titles { text-align: right; }
@@ -1643,6 +1665,34 @@ TEMPLATE_DASHBOARD = r"""
         .value { font-size: 26px; font-weight: 700; color: var(--verde-profundo); margin-top: 4px; }
         .value.red { color: var(--cor-alerta-texto); }
         .value.blue { color: var(--azul-metrica); }
+
+        /* Termômetro Visual de Ponto de Equilíbrio */
+        .gauge-wrap { background: #ffffff; border: 1px solid #bcd9ea; border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
+        .gauge-header { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: #2c3e50; margin-bottom: 8px; }
+        .gauge-bar { position: relative; height: 14px; border-radius: 99px; background: #e8f7ee; overflow: visible; border: 1px solid #d5e5dc; }
+        .gauge-danger-zone { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #fadbd8 0%, #f5b7b1 100%); border-radius: 99px 0 0 99px; }
+        .gauge-pe-line { position: absolute; top: -5px; bottom: -5px; width: 3px; background: #c0392b; z-index: 2; }
+        .gauge-fat-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 18px; height: 18px; border-radius: 50%; background: #0F2E1C; border: 3px solid #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.3); z-index: 3; }
+        .gauge-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 9px; font-size: 11.5px; color: #4a5a50; }
+        .gauge-legend span { display: inline-flex; align-items: center; gap: 5px; }
+        .dot-leg { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+        /* Mini-Simulador Interativo */
+        .sim-card { background: #f7faf8; border: 2px solid #0F2E1C; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+        .sim-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+        .sim-header h3 { margin: 0; font-size: 16px; color: #0F2E1C; }
+        .sim-reset { background: transparent; border: 1px solid #6B7A70; color: #6B7A70; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-family: 'Poppins', sans-serif; }
+        .sim-reset:hover { background: #0F2E1C; color: #ffffff; border-color: #0F2E1C; }
+        .sim-sub { margin: 0 0 14px 0; font-size: 12.5px; color: #6B7A70; }
+        .sim-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+        .sim-ctrl { background: #ffffff; border: 1px solid #dfece5; border-radius: 8px; padding: 10px 12px; }
+        .sim-ctrl label { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; color: #0F2E1C; margin-bottom: 6px; }
+        .sim-ctrl label span { color: #00a645; }
+        .sim-ctrl input[type="range"] { width: 100%; accent-color: #00C853; cursor: pointer; }
+        .sim-results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .sim-res-box { background: #ffffff; border: 1.5px solid #cfe0d6; border-radius: 8px; padding: 10px 12px; text-align: center; }
+        .sim-res-box span { display: block; font-size: 11px; color: #6B7A70; font-weight: 600; text-transform: uppercase; }
+        .sim-res-box strong { display: block; font-size: 15px; color: #0F2E1C; margin-top: 3px; }
         
         .explain-box { background: rgba(255, 255, 255, 0.78); border-radius: 7px; padding: 10px 13px; margin-top: 10px; font-size: 12.8px; color: #2c3e50; line-height: 1.5; border: 1px solid rgba(0,0,0,0.06); }
         .explain-box b { color: #0F2E1C; }
@@ -1672,13 +1722,15 @@ TEMPLATE_DASHBOARD = r"""
         .consequencia { background: #fdeed9; border-left: 5px solid #d35400; padding: 16px 18px; margin-bottom: 20px; border-radius: 10px; }
         .consequencia h4 { color: #a04000; margin: 0 0 6px 0; font-size: 15px; font-weight: 700; }
         .consequencia p { color: #333333; margin: 0; font-size: 14px; line-height: 1.5; }
-        .botoes { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-        .btn { background: var(--verde-caixa); color: var(--branco); padding: 15px 18px; text-decoration: none; border-radius: 8px; font-weight: 700; text-align: center; flex: 1; min-width: 200px; transition: background 0.2s; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+        .botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
+        .btn { background: var(--verde-caixa); color: var(--branco); padding: 15px 16px; text-decoration: none; border-radius: 8px; font-weight: 700; text-align: center; transition: background 0.2s; font-size: 14.5px; display: flex; align-items: center; justify-content: center; }
         .btn:hover { background: #00a645; }
         .btn-outline { background: transparent; border: 2px solid var(--verde-profundo); color: var(--verde-profundo); }
         .btn-outline:hover { background: var(--verde-profundo); color: var(--branco); }
         .btn-wpp { background: var(--whatsapp); color: #ffffff; }
         .btn-wpp:hover { background: #1ebe57; }
+        .btn-share { background: #ebf5fb; border: 2px solid #2980b9; color: #1b4f72; }
+        .btn-share:hover { background: #d6eaf8; }
         .dash-footer { margin-top: 24px; padding-top: 14px; border-top: 1px solid #e6efe9; text-align: center; font-size: 11px; color: #7c8b82; }
         .dash-footer strong { color: #0F2E1C; }
         @media (max-width: 640px) {
@@ -1689,19 +1741,26 @@ TEMPLATE_DASHBOARD = r"""
             .header h1 { font-size: 18px; }
             .header span { font-size: 10px; }
             .premissas-grid { grid-template-columns: 1fr 1fr; }
+            .sim-sliders, .sim-results { grid-template-columns: 1fr; }
             .card { padding: 15px 16px; margin-bottom: 12px; }
             .card-label { font-size: 13px; }
             .value { font-size: 22px; }
             .mc-grid { grid-template-columns: 1fr; }
             .metricas-cegas-card { padding: 16px; }
             .mc-title { font-size: 16px; }
-            .botoes { flex-direction: column; gap: 10px; }
-            .btn { width: 100%; min-width: 100%; padding: 16px; font-size: 15px; }
+            .botoes { grid-template-columns: 1fr; gap: 10px; }
+            .btn { width: 100%; padding: 16px; font-size: 15px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
+        {% if novo %}
+        <div class="banner-novo">
+            ✅ <strong>Laudo gerado com sucesso!</strong> Seu diagnóstico já está vinculado ao WhatsApp <strong>{{ cliente.whatsapp }}</strong> e pode ser consultado a qualquer momento pelo seu CNPJ.
+        </div>
+        {% endif %}
+
         <div class="header">
             <img src="/static/logo.png" alt="Doutor Caixa Logo" class="logo">
             <div class="header-titles">
@@ -1750,10 +1809,27 @@ TEMPLATE_DASHBOARD = r"""
             </div>
         </div>
         
-        <!-- 1. PONTO DE EQUILÍBRIO -->
+        <!-- 1. PONTO DE EQUILÍBRIO + TERMÔMETRO VISUAL -->
         <div class="card alert-blue">
             <div class="card-label">1. Faturamento Mínimo para Empatar (Ponto de Equilíbrio)</div>
             <div class="value blue">R$ {{ ponto_equilibrio|format_brl }} / mês</div>
+
+            <div class="gauge-wrap">
+                <div class="gauge-header">
+                    <span>Zona de Prejuízo</span>
+                    <span>{% if cliente.fat >= ponto_equilibrio %}🟢 Acima do Equilíbrio (+R$ {{ (cliente.fat - ponto_equilibrio)|format_brl }}){% else %}🔴 Faltam R$ {{ (ponto_equilibrio - cliente.fat)|format_brl }} para Empatar{% endif %}</span>
+                </div>
+                <div class="gauge-bar">
+                    <div class="gauge-danger-zone" style="width: {{ gauge_pe_pct }}%;"></div>
+                    <div class="gauge-pe-line" style="left: {{ gauge_pe_pct }}%;" title="Ponto de Equilíbrio"></div>
+                    <div class="gauge-fat-dot" style="left: {{ gauge_fat_pct }}%;" title="Faturamento Atual"></div>
+                </div>
+                <div class="gauge-legend">
+                    <span><i class="dot-leg" style="background: #c0392b;"></i> Equilíbrio: <b>R$ {{ ponto_equilibrio|format_brl }}</b></span>
+                    <span><i class="dot-leg" style="background: #0F2E1C;"></i> Você Hoje: <b>R$ {{ cliente.fat|format_brl }}</b></span>
+                </div>
+            </div>
+
             <div class="explain-box">
                 <b>Por que esse valor?</b> Para pagar os <b>R$ {{ cliente.fixo|format_brl }}</b> de despesa fixa com uma margem de <b>{{ "%.1f"|format(margem_pct) }}%</b> por venda, você precisa faturar pelo menos <b>R$ {{ ponto_equilibrio|format_brl }}</b> por mês{% if vendas_pe > 0 %} (cerca de <b>{{ vendas_pe }} vendas/mês</b>){% endif %}. Abaixo disso, a empresa tira dinheiro do caixa para pagar as contas.
                 {% if receita_recorrente > 0 %}
@@ -1847,6 +1923,45 @@ TEMPLATE_DASHBOARD = r"""
             </div>
         </div>
 
+        <!-- SIMULADOR INTERATIVO ("E SE...") -->
+        <div class="sim-card" id="simulador_box"
+             data-fat="{{ cliente.fat }}"
+             data-fixo="{{ cliente.fixo }}"
+             data-margem="{{ margem_pct }}"
+             data-caixa="{{ cliente.caixa }}">
+            <div class="sim-header">
+                <h3>🎛️ Simulador Rápido: E se você ajustar a rota hoje?</h3>
+                <button type="button" class="sim-reset" onclick="resetarSimulador()">Resetar</button>
+            </div>
+            <p class="sim-sub">Arraste os controles abaixo para ver o impacto imediato no lucro e na segurança do caixa:</p>
+
+            <div class="sim-sliders">
+                <div class="sim-ctrl">
+                    <label>Cortar Despesa Fixa: <span id="lbl_corte">0%</span></label>
+                    <input type="range" id="sim_corte_fixo" min="0" max="30" step="1" value="0" oninput="atualizarSimulador()">
+                </div>
+                <div class="sim-ctrl">
+                    <label>Aumentar Vendas: <span id="lbl_alta">0%</span></label>
+                    <input type="range" id="sim_alta_fat" min="0" max="50" step="1" value="0" oninput="atualizarSimulador()">
+                </div>
+            </div>
+
+            <div class="sim-results">
+                <div class="sim-res-box">
+                    <span>Novo Resultado Mensal</span>
+                    <strong id="sim_out_lucro">R$ {{ lucro_atual|format_brl }}</strong>
+                </div>
+                <div class="sim-res-box">
+                    <span>Novo Ponto Equilíbrio</span>
+                    <strong id="sim_out_pe">R$ {{ ponto_equilibrio|format_brl }}</strong>
+                </div>
+                <div class="sim-res-box">
+                    <span>Fôlego na Crise (-30%)</span>
+                    <strong id="sim_out_runway">{% if lucro < 0 %}{{ dias_runway }} dias{% else %}🟢 Seguro{% endif %}</strong>
+                </div>
+            </div>
+        </div>
+
         <div class="prescricao-card">
             <div class="prescricao-title">PLANO DE AÇÃO PRÁTICO (O QUE FAZER AGORA?)</div>
             <div class="lista-acoes">
@@ -1891,6 +2006,7 @@ TEMPLATE_DASHBOARD = r"""
         <div class="botoes">
             <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome }})%20e%20quero%20ajuda%20para%20aplicar%20o%20plano." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
             <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo em PDF</a>
+            <a href="{{ wpp_share_socio_url }}" target="_blank" class="btn btn-share">📤 Enviar para Sócio / Contador</a>
             <a href="/" class="btn btn-outline">Nova Consulta</a>
         </div>
 
@@ -1898,6 +2014,58 @@ TEMPLATE_DASHBOARD = r"""
             Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
         </div>
     </div>
+
+    <script>
+        function fmtBRL(val) {
+            return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function atualizarSimulador() {
+            const box = document.getElementById('simulador_box');
+            if (!box) return;
+
+            const fatBase = parseFloat(box.dataset.fat) || 0;
+            const fixoBase = parseFloat(box.dataset.fixo) || 0;
+            const margemPct = parseFloat(box.dataset.margem) || 30;
+            const caixaBase = parseFloat(box.dataset.caixa) || 0;
+
+            const cortePct = parseFloat(document.getElementById('sim_corte_fixo').value) || 0;
+            const altaPct = parseFloat(document.getElementById('sim_alta_fat').value) || 0;
+
+            document.getElementById('lbl_corte').innerText = '-' + cortePct + '%';
+            document.getElementById('lbl_alta').innerText = '+' + altaPct + '%';
+
+            const novoFixo = fixoBase * (1 - cortePct / 100);
+            const novoFat = fatBase * (1 + altaPct / 100);
+            const fatorMargem = margemPct / 100;
+
+            const novoLucro = (novoFat * fatorMargem) - novoFixo;
+            const novoPE = fatorMargem > 0 ? (novoFixo / fatorMargem) : 0;
+            const lucroCrise = (novoFat * 0.70 * fatorMargem) - novoFixo;
+
+            const elLucro = document.getElementById('sim_out_lucro');
+            elLucro.innerText = 'R$ ' + fmtBRL(novoLucro);
+            elLucro.style.color = novoLucro < 0 ? '#c0392b' : '#00a645';
+
+            document.getElementById('sim_out_pe').innerText = 'R$ ' + fmtBRL(novoPE);
+
+            const elRunway = document.getElementById('sim_out_runway');
+            if (lucroCrise >= 0) {
+                elRunway.innerText = '🟢 Seguro';
+                elRunway.style.color = '#00a645';
+            } else {
+                const dias = Math.round((caixaBase / Math.abs(lucroCrise)) * 30);
+                elRunway.innerText = dias + ' dias';
+                elRunway.style.color = '#c0392b';
+            }
+        }
+
+        function resetarSimulador() {
+            document.getElementById('sim_corte_fixo').value = 0;
+            document.getElementById('sim_alta_fat').value = 0;
+            atualizarSimulador();
+        }
+    </script>
 </body>
 </html>
 """
@@ -1954,6 +2122,11 @@ def calcular_metricas_laudo(cliente):
     receita_recorrente = 0.0 if modelo == 'produtos' else float(cliente.get('receita_recorrente') or 0.0)
     margem_recorrente_rs = receita_recorrente * fator_margem
     cobertura_fixo_rec_pct = (margem_recorrente_rs / cliente['fixo'] * 100) if (receita_recorrente > 0 and cliente['fixo'] > 0) else 0.0
+
+    # Escala do Termômetro Visual (PE vs Faturamento Atual)
+    escala_max = max(cliente['fat'], ponto_equilibrio, cliente['meta_fat'], 1.0) * 1.12
+    gauge_pe_pct = min(94, max(6, round((ponto_equilibrio / escala_max) * 100)))
+    gauge_fat_pct = min(97, max(3, round((cliente['fat'] / escala_max) * 100)))
 
     # 2. Cenário de Estresse (-30%)
     fat_estresse = cliente['fat'] * 0.70
@@ -2155,6 +2328,8 @@ def calcular_metricas_laudo(cliente):
         "meses_runway": meses_runway,
         "dias_runway": dias_runway,
         "ponto_equilibrio": ponto_equilibrio,
+        "gauge_pe_pct": gauge_pe_pct,
+        "gauge_fat_pct": gauge_fat_pct,
         "pe_pos_corte": pe_pos_corte,
         "vendas_pe_pos_corte": vendas_pe_pos_corte,
         "receita_recorrente": receita_recorrente,
@@ -2273,7 +2448,7 @@ def gerar_textos_prescricao(cliente, m):
     ]
 
 
-def renderizar_laudo(cnpj_limpo):
+def renderizar_laudo(cnpj_limpo, novo=False):
     cliente = buscar_cliente_db(cnpj_limpo)
     if not cliente:
         return render_home_com_utm(erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
@@ -2285,11 +2460,21 @@ def renderizar_laudo(cnpj_limpo):
     itens = gerar_textos_prescricao(cliente, m)
     acao_html = [f"<strong>{tit}</strong>{desc}" for tit, desc in itens]
 
+    msg_socio = (
+        f"Olha o diagnóstico financeiro que gerei para a *{cliente['nome']}* no Doutor Caixa:\n\n"
+        f"• Ponto de Equilíbrio: *R$ {format_brl(m['ponto_equilibrio'])}/mês*\n"
+        f"• Resultado Atual: *R$ {format_brl(m['lucro_atual'])}/mês*\n\n"
+        f"Veja o laudo completo aqui:\nhttps://doutor-caixa.onrender.com/laudo/{cnpj_limpo}"
+    )
+    wpp_share_socio_url = f"https://wa.me/?text={urllib.parse.quote(msg_socio)}"
+
     return render_template_string(
         TEMPLATE_DASHBOARD,
         cliente=cliente,
         cnpj=cnpj_limpo,
         acao=acao_html,
+        novo=novo,
+        wpp_share_socio_url=wpp_share_socio_url,
         **m
     )
 
@@ -2409,11 +2594,7 @@ def diagnostico():
             cnpj_limpo
         )
 
-        return render_template_string(
-            TEMPLATE_SUCESSO,
-            whatsapp=request.form.get('whatsapp', ''),
-            cnpj=cnpj_limpo
-        )
+        return redirect(url_for('laudo_direto', cnpj=cnpj_limpo, novo=1))
     except Exception as e:
         print(traceback.format_exc())
         return render_home_com_utm(erro=f"Erro interno no processamento: {str(e)}")
@@ -2465,13 +2646,14 @@ def acessar():
     if request.method == 'GET':
         return redirect(url_for('home'))
     cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
-    return renderizar_laudo(cnpj_limpo)
+    return renderizar_laudo(cnpj_limpo, novo=False)
 
 
 @app.route('/laudo/<cnpj>')
 def laudo_direto(cnpj):
     cnpj_limpo = "".join(filter(str.isdigit, str(cnpj)))
-    return renderizar_laudo(cnpj_limpo)
+    novo = request.args.get('novo') == '1'
+    return renderizar_laudo(cnpj_limpo, novo=novo)
 
 
 @app.route('/baixar_pdf/<cnpj>')
