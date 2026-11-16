@@ -685,7 +685,7 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 720px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v6.0</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v6.0.1</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -2004,7 +2004,7 @@ TEMPLATE_DASHBOARD = r"""
         {% endif %}
 
         <div class="botoes">
-            <a href="https://wa.me/5581979091165?text=Olá,%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome }})%20e%20quero%20ajuda%20para%20aplicar%20o%20plano." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
+            <a href="https://wa.me/5581979091165?text=Ol%C3%A1%2C%20acabei%20de%20gerar%20meu%20laudo%20no%20Doutor%20Caixa%20({{ cliente.nome|urlencode }})%20e%20quero%20ajuda%20para%20aplicar%20o%20plano." target="_blank" class="btn btn-wpp">💬 Falar com Especialista Agora</a>
             <a href="/baixar_pdf/{{ cnpj }}" class="btn">📄 Baixar Laudo em PDF</a>
             <a href="{{ wpp_share_socio_url }}" target="_blank" class="btn btn-share">📤 Enviar para Sócio / Contador</a>
             <a href="/" class="btn btn-outline">Nova Consulta</a>
