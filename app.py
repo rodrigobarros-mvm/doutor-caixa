@@ -211,7 +211,7 @@ def enviar_telegram_async(mensagem: str):
 
 
 # ==============================================================================
-# FORMATAÇÃO, LINKS WHATSAPP E INTELIGÊNCIA SETORIAL
+# FORMATAÇÃO, LINKS WHATSAPP COM ESPAÇAMENTO E INTELIGÊNCIA SETORIAL
 # ==============================================================================
 def limpar_cnpj(cnpj: str) -> str:
     return "".join(filter(str.isdigit, str(cnpj or "")))[:14]
@@ -248,35 +248,42 @@ def gerar_link_abordagem_cliente(lead: dict, diag: dict, tipo: str = "novo") -> 
     lucro_atual = diag.get("lucro_atual")
 
     if lucro_atual is not None and lucro_atual < 0:
-        resumo_laudo = (
-            f"identificamos um alerta crítico de déficit estimado em {fmt_moeda(abs(lucro_atual))}/mês "
-            f"e {potencial_txt}/mês em potencial oculto"
+        diagnostico_frase = (
+            f"No laudo da *{empresa}*, identificamos um alerta crítico de déficit estimado em *{fmt_moeda(abs(lucro_atual))}/mês* "
+            f"e *{potencial_txt}/mês* em potencial oculto."
         )
     else:
-        resumo_laudo = (
-            f"identificamos {qtd_cegas} ponto(s) cego(s) de gestão "
-            f"e um potencial oculto de {potencial_txt}/mês"
+        diagnostico_frase = (
+            f"No laudo da *{empresa}*, identificamos *{qtd_cegas} ponto(s) cego(s)* de gestão "
+            f"e um potencial oculto de *{potencial_txt}/mês* sendo deixado na mesa."
         )
 
     if tipo == "agenda":
-        msg = (
-            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
-            f"Recebi sua solicitação para agendar a Sessão Estratégica gratuita da *{empresa}* "
-            f"(no seu laudo {resumo_laudo}). Qual o melhor horário para falarmos hoje ou amanhã?"
-        )
+        frases = [
+            f"Olá, {primeiro_nome}! Tudo bem?",
+            "Aqui é da equipe *Doutor Caixa / MaqTrak*.",
+            "Recebi sua solicitação para agendar a Sessão Estratégica gratuita da sua empresa.",
+            diagnostico_frase,
+            "Qual o melhor horário para falarmos hoje ou amanhã?"
+        ]
     elif tipo == "urgente":
-        msg = (
-            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
-            f"Acabei de receber seu chamado pelo laudo da *{empresa}* — {resumo_laudo}. "
-            f"Vamos fazer uma conversa rápida de 15 min para te mostrar o plano prático para destravar esse caixa?"
-        )
+        frases = [
+            f"Olá, {primeiro_nome}! Tudo bem?",
+            "Aqui é da equipe *Doutor Caixa / MaqTrak*.",
+            "Acabei de receber seu chamado prioritário pelo diagnóstico que você gerou.",
+            diagnostico_frase,
+            "Vamos fazer uma conversa rápida de 15 minutos para te mostrar o plano prático para estancar esses vazamentos?"
+        ]
     else:
-        msg = (
-            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
-            f"Vi que você acabou de gerar o diagnóstico da *{empresa}* — no seu laudo {resumo_laudo}. "
-            f"Posso te enviar uma análise rápida de como capturar esse resultado nos próximos 30 dias?"
-        )
+        frases = [
+            f"Olá, {primeiro_nome}! Tudo bem?",
+            "Aqui é da equipe *Doutor Caixa / MaqTrak*.",
+            "Vi que você acabou de emitir o diagnóstico executivo da sua empresa.",
+            diagnostico_frase,
+            "Posso te mostrar em 15 minutos como capturar esse resultado nos próximos 30 dias?"
+        ]
 
+    msg = "\n\n".join(frases)
     return f"https://wa.me/{tel_cliente}?text={urllib.parse.quote(msg)}"
 
 
@@ -395,13 +402,11 @@ def processar_diagnostico(dados: dict) -> dict:
         else:
             pontos_cegos.append(item)
 
-    # 1. Pontos cegos selecionados pelo empresário no formulário
     for cod in gargalos_selecionados:
         info = GARGALOS_CATALOGO.get(cod)
         if info:
             adicionar_ponto_cego(info["titulo"], info["severidade"], info["descricao"])
 
-    # 2. Pontos cegos por indicadores não informados (gestão no escuro)
     if fat is None:
         adicionar_ponto_cego(
             "Faturamento Mensal Não Informado",
@@ -433,7 +438,6 @@ def processar_diagnostico(dados: dict) -> dict:
             "Sem acompanhar o ticket médio, a equipe comercial tende a dar descontos excessivos para fechar pedidos."
         )
 
-    # 3. Cálculos financeiros e alertas de performance vs benchmark
     margem_calc = margem if (margem is not None and margem > 0) else bench["margem_bench"]
     margem_dec = margem_calc / 100.0
 
@@ -506,26 +510,32 @@ def processar_diagnostico(dados: dict) -> dict:
 
     qtd_cegas = len(pontos_cegos)
     empresa_nome = dados.get("empresa") or "minha empresa"
+    tem_critico = any(p.get("severidade") == "CRÍTICO" for p in pontos_cegos)
+    pot_fmt = fmt_moeda(potencial_oculto)
 
+    # CTA DINÂMICO DE ALTA URGÊNCIA BASEADO NO DIAGNÓSTICO DO LAUDO
     if lucro_atual is not None and lucro_atual < 0:
         cta_texto = f"🚨 Estancar Prejuízo de {fmt_moeda(abs(lucro_atual))}/mês Agora"
         cta_cor = "danger"
-    elif qtd_cegas >= 2:
-        cta_texto = f"🔍 Destravar Meus {qtd_cegas} Pontos Cegos Agora"
+    elif qtd_cegas >= 4 or (tem_critico and qtd_cegas >= 2):
+        cta_texto = f"⚠️ Parar de Perder {pot_fmt}/mês ({qtd_cegas} Alertas)"
+        cta_cor = "danger"
+    elif qtd_cegas >= 1:
+        cta_texto = f"🔥 Recuperar {pot_fmt}/mês na Mesa Agora"
         cta_cor = "warning"
     else:
-        cta_texto = f"🚀 Desenhar Plano para Bater {fmt_moeda(meta_fat)}/mês"
+        cta_texto = f"🚀 Capturar +{pot_fmt}/mês e Bater Meta Agora"
         cta_cor = "success"
 
     wpp_msg_principal = (
-        f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa. "
-        f"O laudo apontou {qtd_cegas} ponto(s) cego(s) e potencial de {fmt_moeda(potencial_oculto)}/mês. "
-        f"Quero estancar meus gargalos e conversar com um especialista."
+        f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa.\n\n"
+        f"O laudo apontou *{qtd_cegas} ponto(s) cego(s)* e um potencial de *{pot_fmt}/mês* sendo deixado na mesa.\n\n"
+        f"Quero estancar esses gargalos e conversar com um especialista agora."
     )
 
     wpp_msg_agenda = (
-        f"Olá! Sou {dados.get('solicitante', 'Gestor')} da *{empresa_nome}*. "
-        f"Recebi meu laudo no Doutor Caixa e gostaria de agendar minha Sessão Estratégica gratuita de 15/20 min."
+        f"Olá! Sou {dados.get('solicitante', 'Gestor')} da *{empresa_nome}*.\n\n"
+        f"Recebi meu laudo no Doutor Caixa ({pot_fmt}/mês em potencial) e gostaria de agendar minha Sessão Estratégica gratuita."
     )
 
     return {
@@ -560,7 +570,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/8.0",
         "Accept": "application/json"
     }
 
@@ -721,7 +731,7 @@ def cta_agenda(cnpj):
         if diag.get("wpp_msg_agenda"):
             wpp_msg_para_consultor = diag["wpp_msg_agenda"]
         elif lead_dict.get("empresa"):
-            wpp_msg_para_consultor = f"Olá! Sou {lead_dict.get('solicitante')} da *{lead_dict['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
+            wpp_msg_para_consultor = f"Olá! Sou {lead_dict.get('solicitante')} da *{lead_dict['empresa']}*.\n\nQuero agendar nossa Sessão Estratégica de 20 min."
 
         link_abordar_cliente = gerar_link_abordagem_cliente(lead_dict, diag, tipo="agenda")
 
@@ -975,9 +985,7 @@ def baixar_pdf(cnpj):
     pdf.set_auto_page_break(auto=True, margin=17)
     pdf.add_page()
 
-    # --------------------------------------------------------------------------
     # 1. IDENTIFICAÇÃO DA EMPRESA & PARÂMETROS INFORMADOS
-    # --------------------------------------------------------------------------
     y0 = pdf.get_y()
     box1_h = 27 if dados.get("cnae") else 22
     pdf.set_fill_color(247, 250, 248)
@@ -1011,9 +1019,7 @@ def baixar_pdf(cnpj):
     )
     pdf.set_y(y0 + box1_h + 4)
 
-    # --------------------------------------------------------------------------
-    # 2. OS 4 KPIs PRINCIPAIS (ESPELHO DOS 4 CARDS DO LAUDO ONLINE)
-    # --------------------------------------------------------------------------
+    # 2. OS 4 KPIs PRINCIPAIS
     y_kpi = pdf.get_y()
     card_w = 44.25
     gap_w = 3.0
@@ -1055,9 +1061,7 @@ def baixar_pdf(cnpj):
 
     pdf.set_y(y_kpi + card_h + 4.5)
 
-    # --------------------------------------------------------------------------
-    # 3. BENCHMARK SETORIAL (CNAE & SEGMENTO)
-    # --------------------------------------------------------------------------
+    # 3. BENCHMARK SETORIAL
     y_b = pdf.get_y()
     texto_bench = (
         f"Empresas de alta performance no segmento {bench.get('segmento')} operam com margem acima de "
@@ -1084,9 +1088,7 @@ def baixar_pdf(cnpj):
     pdf.multi_cell(177, 4.2, pdf_safe(texto_bench))
     pdf.set_y(y_b + bench_h + 5)
 
-    # --------------------------------------------------------------------------
-    # 4. RADAR DE PONTOS CEGOS & RISCOS DE CAIXA (MULTI-LINHA COMPLETO)
-    # --------------------------------------------------------------------------
+    # 4. RADAR DE PONTOS CEGOS & RISCOS DE CAIXA
     pdf.set_font("Helvetica", "B", 10.5)
     pdf.set_text_color(15, 23, 42)
     pdf.cell(186, 6, pdf_safe("RADAR DE PONTOS CEGOS & RISCOS DE CAIXA"), ln=1)
@@ -1130,9 +1132,7 @@ def baixar_pdf(cnpj):
             pdf.multi_cell(177, 4.0, pdf_safe(desc_txt))
             pdf.set_y(y_item + item_h + 2.5)
 
-    # --------------------------------------------------------------------------
-    # 5. ENGENHARIA DE METAS COMERCIAIS (ESPELHO DO LAUDO ONLINE)
-    # --------------------------------------------------------------------------
+    # 5. ENGENHARIA DE METAS COMERCIAIS
     if pdf.get_y() + 34 > 272:
         pdf.add_page()
 
@@ -1167,9 +1167,7 @@ def baixar_pdf(cnpj):
 
     pdf.set_y(y_m + 21)
 
-    # --------------------------------------------------------------------------
     # 6. PLANO DE AÇÃO & SESSÃO ESTRATÉGICA + QR CODE WHATSAPP
-    # --------------------------------------------------------------------------
     if pdf.get_y() + 62 > 274:
         pdf.add_page()
 
@@ -1301,7 +1299,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (COM SELEÇÃO DE PONTOS CEGOS E VALIDAÇÃO EM VERMELHO)
+# TEMPLATES HTML
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1354,7 +1352,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         .calc-box input { padding: 9px 11px; font-size: 13.5px; }
         .btn-aplicar-calc { margin-top: 10px; width: 100%; padding: 9px; border: none; border-radius: 9px; background: #0F172A; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
 
-        /* CHECKBOXES INTERATIVOS DE PONTOS CEGOS / GARGALOS */
         .cegos-box { background: #FFF8F6; border: 1.5px solid #FED7AA; border-radius: 14px; padding: 14px; margin-top: 18px; margin-bottom: 18px; }
         .cegos-title { font-size: 13px; font-weight: 800; color: #9A3412; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
         .cegos-sub { font-size: 12px; color: #7C2D12; margin-bottom: 10px; line-height: 1.4; }
@@ -1794,13 +1791,17 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         .offer-sub { font-size: 14px; color: #CBD5E1; margin-bottom: 16px; line-height: 1.5; }
         .deliverables { list-style: none; margin-bottom: 20px; }
         .deliverables li { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 11px 14px; margin-bottom: 9px; font-size: 13.5px; color: #F8FAFC; }
-        .cta-dual { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
+        .cta-dual { display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px; }
         @media (max-width: 640px) { .cta-dual { grid-template-columns: 1fr; } }
-        .btn-cta-main { display: flex; align-items: center; justify-content: center; text-align: center; background: #00C853; color: #fff; text-decoration: none; font-weight: 800; font-size: 15px; padding: 16px 18px; border-radius: 14px; box-shadow: 0 8px 22px rgba(0,200,83,0.35); }
-        .btn-cta-main:hover { background: #00A645; }
-        .btn-cta-main.danger { background: #EF4444; } .btn-cta-main.danger:hover { background: #DC2626; }
+        .btn-cta-main { display: flex; align-items: center; justify-content: center; text-align: center; background: #00C853; color: #fff; text-decoration: none; font-weight: 800; font-size: 15px; padding: 16px 18px; border-radius: 14px; box-shadow: 0 8px 22px rgba(0,200,83,0.35); transition: transform 0.15s ease, background 0.15s ease; }
+        .btn-cta-main:hover { background: #00A645; transform: translateY(-1px); }
+        .btn-cta-main.danger { background: #DC2626; box-shadow: 0 8px 22px rgba(220,38,38,0.42); }
+        .btn-cta-main.danger:hover { background: #B91C1C; }
+        .btn-cta-main.warning { background: #EA580C; box-shadow: 0 8px 22px rgba(234,88,12,0.40); }
+        .btn-cta-main.warning:hover { background: #C2410C; }
         .btn-cta-agenda { display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1.5px solid rgba(255,255,255,0.35); text-decoration: none; font-weight: 700; font-size: 14px; padding: 15px 16px; border-radius: 14px; }
         .btn-cta-agenda:hover { background: rgba(255,255,255,0.2); }
+        .cta-urgency-note { margin-top: 10px; text-align: center; font-size: 11.5px; color: #A7F3D0; font-weight: 600; }
         .plano-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; }
         .plano-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; }
         .plano-box small { display: block; font-size: 11.5px; color: #64748B; font-weight: 700; margin-bottom: 4px; }
@@ -1883,13 +1884,14 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
             <li><strong>3. Plano de Ação de 30 Dias:</strong> roteiro prático para capturar os <strong>{{ diag.potencial_oculto | moeda }}/mês</strong> deixados na mesa.</li>
         </ul>
         <div class="cta-dual">
-            <a href="/cta-wpp/{{ lead.cnpj }}" target="_blank" class="btn-cta-main {% if diag.cta_cor == 'danger' %}danger{% endif %}">
+            <a href="/cta-wpp/{{ lead.cnpj }}" target="_blank" class="btn-cta-main {{ diag.cta_cor }}">
                 {{ diag.cta_texto }}
             </a>
             <a href="/cta-agenda/{{ lead.cnpj }}" target="_blank" class="btn-cta-agenda">
                 📅 Agendar Sessão via WhatsApp
             </a>
         </div>
+        <div class="cta-urgency-note">⏳ Prioridade de atendimento garantida por 24h para o CNPJ {{ lead.cnpj | cnpj_fmt }}</div>
     </div>
 
     <div class="section-card">
