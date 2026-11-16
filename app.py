@@ -365,7 +365,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.2)",
+        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.3)",
         "Accept": "application/json"
     }
 
@@ -963,7 +963,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML
+# TEMPLATES HTML (LOGO AMPLIADA E CENTRALIZADA)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -978,10 +978,12 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
         .container { width: 100%; max-width: 540px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
-        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .brand { display: flex; align-items: center; gap: 10px; }
-        .brand-icon { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #00D65B, #00A645); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 20px; box-shadow: 0 4px 12px rgba(0,200,83,0.28); }
-        .btn-sair { font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 600; }
+        
+        /* Topbar Centralizada com Logo em Destaque */
+        .topbar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 22px; }
+        .brand-center { grid-column: 2; display: flex; justify-content: center; align-items: center; }
+        .brand-center img { height: 56px; width: auto; object-fit: contain; }
+        .btn-sair { grid-column: 3; justify-self: end; font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 600; }
 
         .progress-header { display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; color: var(--primary-dark); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase; }
         .progress-track { width: 100%; height: 6px; background: #E2ECE6; border-radius: 99px; overflow: hidden; margin-bottom: 24px; }
@@ -1032,9 +1034,9 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <body>
 <div class="container">
     <div class="topbar">
-        <div class="brand">
-            <img src="/static/logo.png" alt="Doutor Caixa" style="height: 38px; width: auto; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-            <div class="brand-icon" style="display:none;">📊</div>
+        <div></div>
+        <div class="brand-center">
+            <img src="/static/logo.png" alt="Doutor Caixa" onerror="this.style.display='none';">
         </div>
         <a href="/" class="btn-sair">✕ Sair</a>
     </div>
