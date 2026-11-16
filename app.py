@@ -356,7 +356,7 @@ def processar_diagnostico(dados: dict) -> dict:
 
 
 # ==============================================================================
-# ROTAS DE API (CONSULTA CNPJ, LEAD PARCIAL, STATUS CRM)
+# ROTAS DE API (CONSULTA CNPJ COM FALLBACK MÚLTIPLO)
 # ==============================================================================
 @app.route("/api/cnpj/<cnpj>")
 def api_consultar_cnpj(cnpj):
@@ -365,26 +365,11 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.4)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.5",
         "Accept": "application/json"
     }
 
-    try:
-        req = urllib.request.Request(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}", headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
-            if nome:
-                return jsonify({
-                    "ok": True,
-                    "nome": nome,
-                    "municipio": (data.get("municipio") or "").strip(),
-                    "uf": (data.get("uf") or "").strip(),
-                    "cnae": (data.get("cnae_fiscal_descricao") or "").strip()
-                })
-    except Exception:
-        pass
-
+    # 1. Tentar Minha Receita (Altamente estável)
     try:
         req = urllib.request.Request(f"https://minhareceita.org/{cnpj_limpo}", headers=headers)
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -401,9 +386,10 @@ def api_consultar_cnpj(cnpj):
     except Exception:
         pass
 
+    # 2. Tentar CNPJ.ws
     try:
         req = urllib.request.Request(f"https://publica.cnpj.ws/cnpj/{cnpj_limpo}", headers=headers)
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             est = data.get("estabelecimento") or {}
             nome = (est.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
@@ -417,6 +403,23 @@ def api_consultar_cnpj(cnpj):
                     "municipio": cidade,
                     "uf": uf,
                     "cnae": cnae
+                })
+    except Exception:
+        pass
+
+    # 3. Tentar BrasilAPI como último recurso
+    try:
+        req = urllib.request.Request(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
+            if nome:
+                return jsonify({
+                    "ok": True,
+                    "nome": nome,
+                    "municipio": (data.get("municipio") or "").strip(),
+                    "uf": (data.get("uf") or "").strip(),
+                    "cnae": (data.get("cnae_fiscal_descricao") or "").strip()
                 })
     except Exception:
         pass
@@ -666,7 +669,7 @@ def gerar_laudo():
                 faturamento, margem, custos_fixos, ticket_medio,
                 leads_mes, taxa_conv, vendedores, meta_fat,
                 ponto_equilibrio, lucro_atual, potencial_oculto,
-                qtd_cegas, pontos_cegos_json, diagnostico_json,
+                qtd_cegos, pontos_cegos_json, diagnostico_json,
                 status_crm, completo, origem, criado_em, atualizado_em
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """, (
@@ -963,7 +966,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (LOGO COM MAIS DESTAQUE E FAVICON ADICIONADO)
+# TEMPLATES HTML (CONSULTA CNPJ ROBUSTA E CORRIGIDA)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -980,7 +983,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
         .container { width: 100%; max-width: 540px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
         
-        /* Topbar com Logo Ampliada e de Alto Destaque */
         .topbar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 24px; }
         .brand-center { grid-column: 2; display: flex; justify-content: center; align-items: center; }
         .brand-center img { height: 76px; width: auto; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(0,200,83,0.15)); }
@@ -1184,18 +1186,27 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         if (cnpj === ultimoCnpjBuscado) return;
         ultimoCnpjBuscado = cnpj;
         const st = document.getElementById('cnpj_status'), nom = document.getElementById('empresa_nome');
-        st.innerText = '⏳ Buscando empresa...';
+        st.style.color = '#0284C7';
+        st.innerText = '⏳ Buscando empresa nas bases oficiais...';
         try {
             const res = await fetch(`/api/cnpj/${cnpj}`);
             const d = await res.json();
-            if(d.ok) {
-                if(d.nome && (!nom.value.trim() || nomeAutoPreenchido)) { nom.value = d.nome; nomeAutoPreenchido = true; }
+            if(d.ok && d.nome) {
+                nom.value = d.nome;
+                nomeAutoPreenchido = true;
                 document.getElementById('inp_cidade').value = d.municipio || '';
                 document.getElementById('inp_uf').value = d.uf || '';
                 document.getElementById('inp_cnae').value = d.cnae || '';
-                st.style.color = '#00A645'; st.innerText = `✅ Empresa localizada em ${d.municipio}/${d.uf}`;
-            } else { st.innerText = ''; }
-        } catch(e) { st.innerText = ''; }
+                st.style.color = '#00A645';
+                st.innerText = `✅ Empresa encontrada: ${d.nome} (${d.municipio || ''}/${d.uf || ''})`;
+            } else {
+                st.style.color = '#D97706';
+                st.innerText = '⚠️ CNPJ válido, mas nome não retornado. Digite manualmente.';
+            }
+        } catch(e) {
+            st.style.color = '#DC2626';
+            st.innerText = '⚠️ Erro de conexão ao buscar CNPJ. Digite o nome manualmente.';
+        }
     }
     const cInp = document.getElementById('cnpj');
     cInp.addEventListener('input', e => {
@@ -1203,7 +1214,11 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         v = v.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2');
         e.target.value = v;
         let d = v.replace(/\D/g,'');
-        if(d.length===14 && validarCNPJ(d)) consultarBrasilAPI(d);
+        if(d.length===14 && validarCNPJ(d)) {
+            consultarBrasilAPI(d);
+        } else {
+            document.getElementById('cnpj_status').innerText = '';
+        }
     });
     document.querySelectorAll('.mask-moeda').forEach(i => {
         i.addEventListener('input', e => {
