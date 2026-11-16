@@ -328,10 +328,15 @@ def processar_diagnostico(dados: dict) -> dict:
         cta_texto = f"🚀 Desenhar Plano para Bater {fmt_moeda(meta_fat)}/mês"
         cta_cor = "success"
 
-    wpp_msg = (
+    wpp_msg_principal = (
         f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa. "
         f"O laudo apontou {qtd_cegas} ponto(s) cego(s) e potencial de {fmt_moeda(potencial_oculto)}/mês. "
-        f"Quero agendar minha Sessão Estratégica de 20 min com um especialista."
+        f"Quero estancar meus gargalos e conversar com um especialista."
+    )
+
+    wpp_msg_agenda = (
+        f"Olá! Sou {dados.get('solicitante', 'Gestor')} da *{empresa_nome}*. "
+        f"Recebi meu laudo no Doutor Caixa e gostaria de agendar minha Sessão Estratégica gratuita de 15/20 min."
     )
 
     return {
@@ -351,7 +356,8 @@ def processar_diagnostico(dados: dict) -> dict:
         "pontos_cegos": pontos_cegos,
         "cta_texto": cta_texto,
         "cta_cor": cta_cor,
-        "wpp_msg": wpp_msg
+        "wpp_msg": wpp_msg_principal,
+        "wpp_msg_agenda": wpp_msg_agenda
     }
 
 
@@ -365,64 +371,40 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.5",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.6",
         "Accept": "application/json"
     }
 
-    # 1. Tentar Minha Receita (Altamente estável)
-    try:
-        req = urllib.request.Request(f"https://minhareceita.org/{cnpj_limpo}", headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
-            if nome:
-                return jsonify({
-                    "ok": True,
-                    "nome": nome,
-                    "municipio": (data.get("municipio") or "").strip(),
-                    "uf": (data.get("uf") or "").strip(),
-                    "cnae": (data.get("cnae_fiscal_descricao") or "").strip()
-                })
-    except Exception:
-        pass
+    for url_api in [
+        f"https://minhareceita.org/{cnpj_limpo}",
+        f"https://publica.cnpj.ws/cnpj/{cnpj_limpo}",
+        f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}"
+    ]:
+        try:
+            req = urllib.request.Request(url_api, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "minhareceita" in url_api:
+                    nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
+                    cidade = (data.get("municipio") or "").strip()
+                    uf = (data.get("uf") or "").strip()
+                    cnae = (data.get("cnae_fiscal_descricao") or "").strip()
+                elif "cnpj.ws" in url_api:
+                    est = data.get("estabelecimento") or {}
+                    nome = (est.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
+                    cidade = (est.get("cidade") or {}).get("nome", "").strip()
+                    uf = (est.get("estado") or {}).get("sigla", "").strip()
+                    cnae = (est.get("atividade_principal") or {}).get("descricao", "").strip()
+                else:
+                    nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
+                    cidade = (data.get("municipio") or "").strip()
+                    uf = (data.get("uf") or "").strip()
+                    cnae = (data.get("cnae_fiscal_descricao") or "").strip()
 
-    # 2. Tentar CNPJ.ws
-    try:
-        req = urllib.request.Request(f"https://publica.cnpj.ws/cnpj/{cnpj_limpo}", headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            est = data.get("estabelecimento") or {}
-            nome = (est.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
-            cidade = (est.get("cidade") or {}).get("nome", "").strip()
-            uf = (est.get("estado") or {}).get("sigla", "").strip()
-            cnae = (est.get("atividade_principal") or {}).get("descricao", "").strip()
-            if nome:
-                return jsonify({
-                    "ok": True,
-                    "nome": nome,
-                    "municipio": cidade,
-                    "uf": uf,
-                    "cnae": cnae
-                })
-    except Exception:
-        pass
-
-    # 3. Tentar BrasilAPI como último recurso
-    try:
-        req = urllib.request.Request(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}", headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            nome = (data.get("nome_fantasia") or "").strip() or (data.get("razao_social") or "").strip()
-            if nome:
-                return jsonify({
-                    "ok": True,
-                    "nome": nome,
-                    "municipio": (data.get("municipio") or "").strip(),
-                    "uf": (data.get("uf") or "").strip(),
-                    "cnae": (data.get("cnae_fiscal_descricao") or "").strip()
-                })
-    except Exception:
-        pass
+                if nome:
+                    return jsonify({"ok": True, "nome": nome, "municipio": cidade, "uf": uf, "cnae": cnae})
+        except Exception:
+            continue
 
     return jsonify({"ok": False, "erro": "Não encontrado nas bases públicas"}), 404
 
@@ -462,20 +444,6 @@ def api_lead_parcial():
 
     conn.commit()
     conn.close()
-
-    sync_supabase_async({
-        "cnpj": cnpj,
-        "empresa": empresa,
-        "cidade": cidade,
-        "uf": uf,
-        "cnae": cnae,
-        "ramo": ramo,
-        "status_crm": existente["status_crm"] if existente else "Lead Incompleto",
-        "completo": bool(existente["completo"]) if existente else False,
-        "origem": origem,
-        "atualizado_em": ts
-    })
-
     return jsonify({"ok": True})
 
 
@@ -503,7 +471,7 @@ def api_lead_status():
 
 
 # ==============================================================================
-# ROTAS DE RASTREAMENTO DE CONVERSÃO (TELEGRAM ALERTA QUENTE COM LINK WPP + COPY)
+# ROTAS DE RASTREAMENTO DE CONVERSÃO (WHATSAPP + TELEGRAM)
 # ==============================================================================
 @app.route("/cta-wpp/<cnpj>")
 def cta_whatsapp(cnpj):
@@ -514,7 +482,7 @@ def cta_whatsapp(cnpj):
     lead = cur.fetchone()
 
     ts = agora_br()
-    wpp_msg = "Olá! Fiz meu diagnóstico no Doutor Caixa e quero falar com um especialista."
+    wpp_msg = "Olá! Fiz meu diagnóstico no Doutor Caixa e quero estancar meus prejuízos."
 
     if lead:
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
@@ -528,22 +496,20 @@ def cta_whatsapp(cnpj):
         link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
 
         alerta = (
-            f"🔥 <b>ALERTA QUENTE — CLICOU NO WHATSAPP!</b>\n\n"
+            f"🔥 <b>ALERTA QUENTE — BOTÃO PRINCIPAL (ESTANCAR PREJUÍZO)!</b>\n\n"
             f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
             f"📍 <b>Local:</b> {lead['cidade'] or '-'}/{lead['uf'] or '-'}\n"
             f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
             f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n"
             f"🚨 <b>Pontos Cegos:</b> {lead['qtd_cegas'] or 0}\n"
             f"💰 <b>Potencial Oculto:</b> {fmt_moeda(lead['potencial_oculto'])}\n\n"
-            f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA FALAR COM O CLIENTE NO WHATSAPP</b></a>\n\n"
-            f"⚡ <i>Aberto agora às {ts}. Chame imediatamente!</i>"
+            f"💬 <a href=\"{link_wpp_direto}\"><b>FALAR COM O CLIENTE NO WHATSAPP</b></a>"
         )
         enviar_telegram_async(alerta)
 
     conn.close()
     wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-    url_final = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
-    return redirect(url_final, code=302)
+    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}", code=302)
 
 
 @app.route("/cta-agenda/<cnpj>")
@@ -555,36 +521,37 @@ def cta_agenda(cnpj):
     lead = cur.fetchone()
 
     ts = agora_br()
-    wpp_msg = "Olá! Gostaria de agendar minha Sessão Estratégica de 20 min (Diagnóstico Comercial & Caixa)."
+    wpp_msg = "Olá! Gostaria de agendar minha Sessão Estratégica de 20 min no Doutor Caixa."
 
     if lead:
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
         conn.commit()
 
-        if lead.get("empresa"):
+        diag = json.loads(lead["diagnostico_json"] or "{}")
+        if diag.get("wpp_msg_agenda"):
+            wpp_msg = diag["wpp_msg_agenda"]
+        elif lead.get("empresa"):
             wpp_msg = f"Olá! Sou {lead['solicitante']} da *{lead['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
 
         wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
         link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
 
         alerta = (
-            f"📅 <b>ALERTA QUENTE — QUER AGENDAR REUNIÃO!</b>\n\n"
+            f"📅 <b>ALERTA — QUER AGENDAR REUNIÃO (BOTÃO SECUNDÁRIO)!</b>\n\n"
             f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
             f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
             f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n\n"
-            f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA COMBINAR O HORÁRIO NO WHATSAPP</b></a>\n\n"
-            f"⏰ <i>Solicitado às {ts}</i>"
+            f"💬 <a href=\"{link_wpp_direto}\"><b>COMBINAR HORÁRIO NO WHATSAPP</b></a>"
         )
         enviar_telegram_async(alerta)
 
     conn.close()
     wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-    url_final = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
-    return redirect(url_final, code=302)
+    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}", code=302)
 
 
 # ==============================================================================
-# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF)
+# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF CORRIGIDO)
 # ==============================================================================
 @app.route("/", methods=["GET"])
 def index():
@@ -669,7 +636,7 @@ def gerar_laudo():
                 faturamento, margem, custos_fixos, ticket_medio,
                 leads_mes, taxa_conv, vendedores, meta_fat,
                 ponto_equilibrio, lucro_atual, potencial_oculto,
-                qtd_cegos, pontos_cegos_json, diagnostico_json,
+                qtd_cegas, pontos_cegos_json, diagnostico_json,
                 status_crm, completo, origem, criado_em, atualizado_em
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """, (
@@ -685,45 +652,6 @@ def gerar_laudo():
 
     conn.commit()
     conn.close()
-
-    sync_supabase_async({
-        "cnpj": cnpj,
-        "empresa": empresa,
-        "cidade": cidade,
-        "uf": uf,
-        "cnae": cnae,
-        "ramo": ramo,
-        "solicitante": solicitante,
-        "cargo": cargo,
-        "whatsapp": whatsapp,
-        "faturamento": dados["faturamento"],
-        "margem": dados["margem"],
-        "custos_fixos": dados["custos_fixos"],
-        "ponto_equilibrio": diag["ponto_equilibrio"],
-        "lucro_atual": diag["lucro_atual"],
-        "potencial_oculto": diag["potencial_oculto"],
-        "qtd_cegas": diag["qtd_cegas"],
-        "status_crm": status_final,
-        "completo": True,
-        "origem": origem,
-        "atualizado_em": ts
-    })
-
-    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-    link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(diag['wpp_msg'])}"
-
-    alerta_novo = (
-        f"✅ <b>NOVO DIAGNÓSTICO CONCLUÍDO!</b>\n\n"
-        f"🏢 <b>Empresa:</b> {empresa}\n"
-        f"📍 <b>Cidade/UF:</b> {cidade or '-'}/{uf or '-'}\n"
-        f"👤 <b>Solicitante:</b> {solicitante} ({cargo})\n"
-        f"📱 <b>WhatsApp:</b> {whatsapp}\n"
-        f"💵 <b>Faturamento:</b> {fmt_moeda(dados['faturamento'])}\n"
-        f"🚨 <b>Pontos Cegos:</b> {diag['qtd_cegas']}\n"
-        f"💰 <b>Potencial Oculto:</b> {fmt_moeda(diag['potencial_oculto'])}/mês\n\n"
-        f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA CHAMAR O CLIENTE NO WHATSAPP</b></a>"
-    )
-    enviar_telegram_async(alerta_novo)
 
     return redirect(url_for("ver_laudo", cnpj=cnpj))
 
@@ -912,7 +840,7 @@ def baixar_pdf(cnpj):
         pdf.set_text_color(15, 46, 28)
         pdf.cell(34, 4, "QR WhatsApp", align='C')
 
-    pdf_bytes = bytearray(pdf.output())
+    pdf_bytes = bytes(pdf.output())
     return send_file(io.BytesIO(pdf_bytes), download_name=f"Laudo_Executivo_{cnpj_limpo}.pdf", as_attachment=True, mimetype='application/pdf')
 
 
@@ -966,7 +894,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (CONSULTA CNPJ ROBUSTA E CORRIGIDA)
+# TEMPLATES HTML (BOTÕES COM ABORDAGENS DIFERENCIADAS E CORRIGIDAS)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1393,7 +1321,7 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
                 {{ diag.cta_texto }}
             </a>
             <a href="/cta-agenda/{{ lead.cnpj }}" target="_blank" class="btn-cta-agenda">
-                💬 Agendar via WhatsApp (15 min)
+                📅 Agendar Sessão via WhatsApp
             </a>
         </div>
     </div>
