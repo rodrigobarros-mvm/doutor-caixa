@@ -5,8 +5,7 @@ import threading
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, make_response, jsonify, send_file
-import io
+from flask import Flask, render_template_string, request, redirect, url_for, make_response, jsonify
 from fpdf import FPDF
 
 app = Flask(__name__)
@@ -173,6 +172,11 @@ def fmt_num(valor) -> str:
     if valor is None:
         return "0"
     return f"{int(round(float(valor))):,}".replace(",", ".")
+
+
+def pdf_safe(texto) -> str:
+    s = str(texto or "").replace("—", "-").replace("–", "-").replace("•", "-")
+    return s.encode("latin-1", "ignore").decode("latin-1")
 
 
 app.jinja_env.filters["moeda"] = fmt_moeda
@@ -371,7 +375,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.6",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.7",
         "Accept": "application/json"
     }
 
@@ -530,7 +534,7 @@ def cta_agenda(cnpj):
         diag = json.loads(lead["diagnostico_json"] or "{}")
         if diag.get("wpp_msg_agenda"):
             wpp_msg = diag["wpp_msg_agenda"]
-        elif lead.get("empresa"):
+        elif lead["empresa"]:
             wpp_msg = f"Olá! Sou {lead['solicitante']} da *{lead['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
 
         wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
@@ -551,7 +555,7 @@ def cta_agenda(cnpj):
 
 
 # ==============================================================================
-# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF CORRIGIDO)
+# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF 100% COMPATÍVEL)
 # ==============================================================================
 @app.route("/", methods=["GET"])
 def index():
@@ -698,20 +702,24 @@ def baixar_pdf(cnpj):
     if not diag:
         diag = processar_diagnostico(dados)
 
+    logo_path = os.path.join(app.root_path, "static", "logo.png")
+    qr_path = os.path.join(app.root_path, "static", "qrcode_whatsapp.png")
+
     class PDF(FPDF):
         def header(self):
-            try:
-                self.image('static/logo.png', 12, 9, 30)
-            except Exception:
-                pass
+            if os.path.exists(logo_path):
+                try:
+                    self.image(logo_path, 12, 9, 30)
+                except Exception:
+                    pass
             self.set_text_color(15, 46, 28)
-            self.set_font('helvetica', 'B', 15)
+            self.set_font("Helvetica", "B", 15)
             self.set_xy(45, 14)
-            self.cell(153, 7, 'LAUDO EXECUTIVO DE CAIXA E VENDAS', border=0, align='R')
-            self.set_font('helvetica', '', 8.5)
+            self.cell(153, 7, pdf_safe("LAUDO EXECUTIVO DE CAIXA E VENDAS"), border=0, align="R")
+            self.set_font("Helvetica", "", 8.5)
             self.set_text_color(100, 110, 105)
             self.set_xy(45, 22)
-            self.cell(153, 5, 'DOUTOR CAIXA — INTELIGÊNCIA COMERCIAL E FINANCEIRA', border=0, align='R')
+            self.cell(153, 5, pdf_safe("DOUTOR CAIXA - INTELIGENCIA COMERCIAL E FINANCEIRA"), border=0, align="R")
             self.set_draw_color(213, 232, 220)
             self.set_line_width(0.4)
             self.line(12, 36, 198, 36)
@@ -719,80 +727,77 @@ def baixar_pdf(cnpj):
 
         def footer(self):
             self.set_y(-15)
-            self.set_font('helvetica', '', 7.5)
+            self.set_font("Helvetica", "", 7.5)
             self.set_text_color(120, 130, 124)
-            self.cell(0, 4, f'Doutor Caixa | Inteligência Financeira & Comercial — Página {self.page_no()}', ln=1, align='C')
-            self.cell(0, 4, 'Doutor Caixa é uma empresa da MaqTrak - Hub de Soluções em Inteligência de Mercado.', align='C')
+            self.cell(0, 4, pdf_safe(f"Doutor Caixa | Inteligencia Financeira & Comercial - Pagina {self.page_no()}"), ln=1, align="C")
+            self.cell(0, 4, pdf_safe("Doutor Caixa e uma empresa da MaqTrak - Hub de Solucoes em Inteligencia de Mercado."), align="C")
 
     pdf = PDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    def pdf_safe(texto):
-        return str(texto or "").encode("latin-1", "ignore").decode("latin-1")
-
     pdf.set_fill_color(247, 250, 248)
-    pdf.rect(12, pdf.get_y(), 186, 22, 'F')
+    pdf.rect(12, pdf.get_y(), 186, 22, "F")
     pdf.set_fill_color(0, 200, 83)
-    pdf.rect(12, pdf.get_y(), 2.5, 22, 'F')
+    pdf.rect(12, pdf.get_y(), 2.5, 22, "F")
 
     pdf.set_xy(18, pdf.get_y() + 3)
-    pdf.set_font('helvetica', 'B', 10)
+    pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(0, 0, 0)
-    loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get('cidade') and dados.get('uf') else ""
+    loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get("cidade") and dados.get("uf") else ""
     pdf.cell(175, 5, pdf_safe(f"EMPRESA: {dados['empresa']}{loc_pdf} | CNPJ: {formatar_cnpj(cnpj_limpo)}"), ln=1)
     pdf.set_x(18)
-    pdf.set_font('helvetica', '', 9)
+    pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(30, 30, 30)
     pdf.cell(175, 4.5, pdf_safe(f"Segmento: {dados['ramo']} | Solicitante: {dados['solicitante']} ({dados['cargo']})"), ln=1)
     pdf.set_x(18)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(0, 166, 69)
     pdf.cell(175, 4.5, pdf_safe(f"Faturamento: {fmt_moeda(dados.get('faturamento'))} | Pontos Cegos: {diag.get('qtd_cegas', 0)}"), ln=1)
     pdf.ln(8)
 
     y = pdf.get_y()
     pdf.set_fill_color(235, 245, 251)
-    pdf.rect(12, y, 186, 24, 'F')
+    pdf.rect(12, y, 186, 24, "F")
     pdf.set_fill_color(41, 128, 185)
-    pdf.rect(12, y, 2.5, 24, 'F')
+    pdf.rect(12, y, 2.5, 24, "F")
     pdf.set_xy(18, y + 3)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 4.5, "PONTO DE EQUILÍBRIO & SAÚDE FINANCEIRA", ln=1)
+    pdf.cell(175, 4.5, pdf_safe("PONTO DE EQUILIBRIO & SAUDE FINANCEIRA"), ln=1)
     pdf.set_x(18)
-    pdf.set_font('helvetica', 'B', 13)
+    pdf.set_font("Helvetica", "B", 13)
     pdf.set_text_color(15, 23, 42)
-    pe_txt = fmt_moeda(diag.get('ponto_equilibrio')) if diag.get('ponto_equilibrio') else "Não calculável"
-    lucro_txt = fmt_moeda(diag.get('lucro_atual')) if diag.get('lucro_atual') is not None else "Não informado"
-    pdf.cell(175, 6, pdf_safe(f"Empate Mínimo: {pe_txt}  |  Resultado Operacional: {lucro_txt}/mês"), ln=1)
+    pe_txt = fmt_moeda(diag.get("ponto_equilibrio")) if diag.get("ponto_equilibrio") else "Nao calculavel"
+    lucro_txt = fmt_moeda(diag.get("lucro_atual")) if diag.get("lucro_atual") is not None else "Nao informado"
+    pdf.cell(175, 6, pdf_safe(f"Empate Minimo: {pe_txt}  |  Resultado Operacional: {lucro_txt}/mes"), ln=1)
     pdf.set_x(18)
-    pdf.set_font('helvetica', '', 8.5)
+    pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(50, 60, 70)
     pdf.cell(175, 4.5, pdf_safe(f"Potencial Oculto Mensal (Dinheiro na Mesa): {fmt_moeda(diag.get('potencial_oculto'))}"), ln=1)
     pdf.ln(10)
 
-    pdf.set_font('helvetica', 'B', 11)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(15, 23, 42)
-    pdf.cell(186, 6, "PRINCIPAIS PONTOS CEGOS DE GESTÃO", ln=1)
-    pdf.set_font('helvetica', '', 9)
+    pdf.cell(186, 6, pdf_safe("PRINCIPAIS PONTOS CEGOS DE GESTAO"), ln=1)
+    pdf.set_font("Helvetica", "", 9)
 
     for item in diag.get("pontos_cegos", []):
         if pdf.get_y() > 240:
             pdf.add_page()
         y_item = pdf.get_y()
         pdf.set_fill_color(254, 242, 242)
-        pdf.rect(12, y_item, 186, 14, 'F')
+        pdf.rect(12, y_item, 186, 14, "F")
         pdf.set_fill_color(239, 68, 68)
-        pdf.rect(12, y_item, 2, 14, 'F')
+        pdf.rect(12, y_item, 2, 14, "F")
         pdf.set_xy(17, y_item + 2)
-        pdf.set_font('helvetica', 'B', 9)
+        pdf.set_font("Helvetica", "B", 9)
         pdf.set_text_color(185, 28, 28)
         pdf.cell(175, 4.5, pdf_safe(f"[{item.get('severidade', 'ALTO')}] {item.get('titulo', '')}"), ln=1)
         pdf.set_x(17)
-        pdf.set_font('helvetica', '', 8.5)
+        pdf.set_font("Helvetica", "", 8.5)
         pdf.set_text_color(50, 60, 70)
-        pdf.cell(175, 4.5, pdf_safe(item.get('descricao', '')), ln=1)
+        pdf.cell(175, 4.5, pdf_safe(item.get("descricao", "")), ln=1)
         pdf.ln(4)
 
     if pdf.get_y() > 210:
@@ -800,48 +805,67 @@ def baixar_pdf(cnpj):
 
     y_cta = pdf.get_y() + 6
     pdf.set_fill_color(15, 46, 28)
-    pdf.rect(12, y_cta, 186, 42, 'F')
+    pdf.rect(12, y_cta, 186, 42, "F")
     pdf.set_fill_color(0, 200, 83)
-    pdf.rect(12, y_cta, 3, 42, 'F')
+    pdf.rect(12, y_cta, 3, 42, "F")
 
     wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
     link_wpp_pdf = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(diag.get('wpp_msg', ''))}"
 
     pdf.set_xy(18, y_cta + 4)
-    pdf.set_font('helvetica', 'B', 8.5)
+    pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(243, 156, 18)
-    pdf.cell(125, 4.5, pdf_safe("CADA DIA SEM AÇÃO CUSTA MARGEM E DINHEIRO NO CAIXA."), ln=1)
+    pdf.cell(125, 4.5, pdf_safe("CADA DIA SEM ACAO CUSTA MARGEM E DINHEIRO NO CAIXA."), ln=1)
 
     pdf.set_x(18)
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(0, 200, 83)
     pdf.cell(125, 6, pdf_safe("FALE AGORA COM O ESPECIALISTA"), ln=1, link=link_wpp_pdf)
 
     pdf.set_x(18)
-    pdf.set_font('helvetica', '', 8.2)
+    pdf.set_font("Helvetica", "", 8.2)
     pdf.set_text_color(235, 242, 238)
-    pdf.multi_cell(125, 4.2, pdf_safe("Aponte a câmera do seu celular para o QR Code ao lado e fale diretamente com o consultor para destravar seu plano de ação:"))
+    pdf.multi_cell(125, 4.2, pdf_safe("Aponte a camera do seu celular para o QR Code ao lado e fale diretamente com o consultor para destravar seu plano de acao:"))
 
     y_num = y_cta + 30
     pdf.set_fill_color(24, 68, 42)
-    pdf.rect(18, y_num, 84, 8.5, 'F')
+    pdf.rect(18, y_num, 84, 8.5, "F")
     pdf.set_xy(20, y_num + 1.8)
-    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(255, 255, 255)
     pdf.cell(80, 5, pdf_safe(f"WhatsApp: {WHATSAPP_CONSULTOR}"), link=link_wpp_pdf)
 
     pdf.set_fill_color(255, 255, 255)
-    pdf.rect(152, y_cta + 4, 34, 34, 'F')
-    try:
-        pdf.image('static/qrcode_whatsapp.png', x=153, y=y_cta + 5, w=32, h=32, link=link_wpp_pdf)
-    except Exception:
+    pdf.rect(152, y_cta + 4, 34, 34, "F")
+    qr_ok = False
+    if os.path.exists(qr_path):
+        try:
+            pdf.image(qr_path, x=153, y=y_cta + 5, w=32, h=32, link=link_wpp_pdf)
+            qr_ok = True
+        except Exception:
+            qr_ok = False
+    if not qr_ok:
         pdf.set_xy(152, y_cta + 16)
-        pdf.set_font('helvetica', 'B', 7)
+        pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(15, 46, 28)
-        pdf.cell(34, 4, "QR WhatsApp", align='C')
+        pdf.cell(34, 4, pdf_safe("QR WhatsApp"), align="C")
 
-    pdf_bytes = bytes(pdf.output())
-    return send_file(io.BytesIO(pdf_bytes), download_name=f"Laudo_Executivo_{cnpj_limpo}.pdf", as_attachment=True, mimetype='application/pdf')
+    try:
+        raw_out = pdf.output()
+    except TypeError:
+        raw_out = pdf.output(dest="S")
+
+    if isinstance(raw_out, str):
+        if not raw_out:
+            raw_out = pdf.output(dest="S")
+        pdf_bytes = raw_out.encode("latin-1")
+    else:
+        pdf_bytes = bytes(raw_out)
+
+    resp = make_response(pdf_bytes)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f'attachment; filename="Laudo_Executivo_{cnpj_limpo}.pdf"'
+    return resp
 
 
 # ==============================================================================
@@ -894,7 +918,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (BOTÕES COM ABORDAGENS DIFERENCIADAS E CORRIGIDAS)
+# TEMPLATES HTML
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
