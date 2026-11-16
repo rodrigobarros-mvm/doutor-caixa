@@ -29,6 +29,83 @@ def agora_br():
 
 
 # ==============================================================================
+# CATÁLOGO DE PONTOS CEGOS SELECIONÁVEIS (ETAPAS 2 E 3)
+# ==============================================================================
+GARGALOS_CATALOGO = {
+    "sem_margem_real": {
+        "etapa": "financeiro",
+        "label": "Não sei a margem de lucro real de cada produto/serviço",
+        "titulo": "Precificação sem Margem de Contribuição Real",
+        "severidade": "CRÍTICO",
+        "descricao": "Vender sem conhecer a margem líquida unitária faz a empresa crescer faturamento enquanto corrói o caixa a cada venda."
+    },
+    "mistura_contas": {
+        "etapa": "financeiro",
+        "label": "Misturo contas pessoais dos sócios com o caixa da empresa",
+        "titulo": "Confusão Patrimonial (Caixa Empresa x Sócios)",
+        "severidade": "CRÍTICO",
+        "descricao": "Retiradas sem pró-labore definido descapitalizam o giro operacional e mascaram a real lucratividade do negócio."
+    },
+    "desconto_sem_calculo": {
+        "etapa": "financeiro",
+        "label": "Dou descontos para fechar venda sem calcular o impacto no lucro",
+        "titulo": "Concessão de Descontos Sem Critério de Margem",
+        "severidade": "ALTO",
+        "descricao": "Um desconto de 10% no preço exige até 30% a mais de volume de vendas apenas para empatar o mesmo lucro bruto."
+    },
+    "fatura_sem_sobrar": {
+        "etapa": "financeiro",
+        "label": "A empresa fatura bem, mas no fim do mês não sobra dinheiro",
+        "titulo": "Descompasso Entre Faturamento e Geração de Caixa",
+        "severidade": "CRÍTICO",
+        "descricao": "Sinal clássico de custos fixos inchados, prazos de recebimento descasados ou margem comprimida na operação."
+    },
+    "sem_fluxo_diario": {
+        "etapa": "financeiro",
+        "label": "Falta controle diário de fluxo de caixa e ponto de equilíbrio",
+        "titulo": "Gestão Financeira Reativa (Sem Previsão de Caixa)",
+        "severidade": "ALTO",
+        "descricao": "Operar olhando apenas o saldo bancário do dia impede antecipar apertos de caixa e planejar investimentos."
+    },
+    "sem_meta_diaria": {
+        "etapa": "comercial",
+        "label": "Equipe comercial sem metas diárias de contatos e visitas",
+        "titulo": "Baixa Cadência de Prospecção Comercial",
+        "severidade": "ALTO",
+        "descricao": "Sem rotina mínima diária de abordagens ativas e visitas, o funil seca e o faturamento oscila mês a mês."
+    },
+    "sem_followup": {
+        "etapa": "comercial",
+        "label": "Orçamentos enviados sem follow-up estruturado (leads esfriam)",
+        "titulo": "Vazamento no Funil por Falta de Follow-up",
+        "severidade": "CRÍTICO",
+        "descricao": "Mais de 60% das vendas B2B e consultivas acontecem após o 4º contato. Sem cadência, você paga pelo lead e entrega ao concorrente."
+    },
+    "dependencia_dono": {
+        "etapa": "comercial",
+        "label": "Dependência total do dono para fechar as principais vendas",
+        "titulo": "Gargalo de Escala Centralizado no Sócio",
+        "severidade": "ALTO",
+        "descricao": "Quando só o dono sabe vender, a empresa bate num teto de faturamento e o gestor fica preso no operacional."
+    },
+    "sem_crm_processo": {
+        "etapa": "comercial",
+        "label": "Falta de CRM ou processo previsível para gerar oportunidades",
+        "titulo": "Funil Comercial Sem Rastreabilidade (Sem CRM)",
+        "severidade": "MÉDIO",
+        "descricao": "Sem registro de etapas e motivos de perda, é impossível corrigir onde os vendedores estão perdendo negócios."
+    },
+    "conversao_baixa": {
+        "etapa": "comercial",
+        "label": "Muitos orçamentos/atendimentos, mas poucos fechamentos",
+        "titulo": "Baixa Eficiência de Conversão no Atendimento",
+        "severidade": "ALTO",
+        "descricao": "Falha na qualificação inicial ou na ancoragem de valor faz a equipe gastar energia com curiosos e perder clientes prontos."
+    }
+}
+
+
+# ==============================================================================
 # BANCO DE DADOS (SQLITE + MIGRAÇÃO AUTOMÁTICA)
 # ==============================================================================
 def get_db():
@@ -64,6 +141,7 @@ def init_db():
             lucro_atual REAL,
             potencial_oculto REAL,
             qtd_cegas INTEGER DEFAULT 0,
+            gargalos_json TEXT,
             pontos_cegos_json TEXT,
             diagnostico_json TEXT,
             status_crm TEXT DEFAULT 'Novo',
@@ -75,6 +153,10 @@ def init_db():
             atualizado_em TEXT
         )
     """)
+    try:
+        cur.execute("ALTER TABLE leads ADD COLUMN gargalos_json TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -129,7 +211,7 @@ def enviar_telegram_async(mensagem: str):
 
 
 # ==============================================================================
-# FORMATAÇÃO E INTELIGÊNCIA SETORIAL (CNAE + BENCHMARKS)
+# FORMATAÇÃO, LINKS WHATSAPP E INTELIGÊNCIA SETORIAL
 # ==============================================================================
 def limpar_cnpj(cnpj: str) -> str:
     return "".join(filter(str.isdigit, str(cnpj or "")))[:14]
@@ -140,6 +222,62 @@ def formatar_cnpj(cnpj: str) -> str:
     if len(d) != 14:
         return cnpj or ""
     return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+
+
+def normalizar_telefone_br(telefone: str) -> str:
+    digitos = "".join(filter(str.isdigit, str(telefone or "")))
+    if not digitos:
+        return ""
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        return digitos
+    if len(digitos) in (10, 11):
+        return f"55{digitos}"
+    return digitos
+
+
+def gerar_link_abordagem_cliente(lead: dict, diag: dict, tipo: str = "novo") -> str:
+    tel_cliente = normalizar_telefone_br(lead.get("whatsapp", ""))
+    if not tel_cliente:
+        return ""
+
+    solicitante = (lead.get("solicitante") or "").strip()
+    primeiro_nome = solicitante.split()[0] if solicitante else "tudo bem"
+    empresa = (lead.get("empresa") or "sua empresa").strip()
+    qtd_cegas = diag.get("qtd_cegas", 0)
+    potencial_txt = fmt_moeda(diag.get("potencial_oculto"))
+    lucro_atual = diag.get("lucro_atual")
+
+    if lucro_atual is not None and lucro_atual < 0:
+        resumo_laudo = (
+            f"identificamos um alerta crítico de déficit estimado em {fmt_moeda(abs(lucro_atual))}/mês "
+            f"e {potencial_txt}/mês em potencial oculto"
+        )
+    else:
+        resumo_laudo = (
+            f"identificamos {qtd_cegas} ponto(s) cego(s) de gestão "
+            f"e um potencial oculto de {potencial_txt}/mês"
+        )
+
+    if tipo == "agenda":
+        msg = (
+            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
+            f"Recebi sua solicitação para agendar a Sessão Estratégica gratuita da *{empresa}* "
+            f"(no seu laudo {resumo_laudo}). Qual o melhor horário para falarmos hoje ou amanhã?"
+        )
+    elif tipo == "urgente":
+        msg = (
+            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
+            f"Acabei de receber seu chamado pelo laudo da *{empresa}* — {resumo_laudo}. "
+            f"Vamos fazer uma conversa rápida de 15 min para te mostrar o plano prático para destravar esse caixa?"
+        )
+    else:
+        msg = (
+            f"Olá, {primeiro_nome}! Tudo bem? Aqui é da equipe *Doutor Caixa / MaqTrak*. "
+            f"Vi que você acabou de gerar o diagnóstico da *{empresa}* — no seu laudo {resumo_laudo}. "
+            f"Posso te enviar uma análise rápida de como capturar esse resultado nos próximos 30 dias?"
+        )
+
+    return f"https://wa.me/{tel_cliente}?text={urllib.parse.quote(msg)}"
 
 
 def parse_float_opcional(valor):
@@ -175,13 +313,22 @@ def fmt_num(valor) -> str:
 
 
 def pdf_safe(texto) -> str:
-    s = str(texto or "").replace("—", "-").replace("–", "-").replace("•", "-")
+    s = (
+        str(texto or "")
+        .replace("—", "-")
+        .replace("–", "-")
+        .replace("•", "-")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("’", "'")
+    )
     return s.encode("latin-1", "ignore").decode("latin-1")
 
 
 app.jinja_env.filters["moeda"] = fmt_moeda
 app.jinja_env.filters["num"] = fmt_num
 app.jinja_env.filters["cnpj_fmt"] = formatar_cnpj
+app.jinja_env.filters["tel_br"] = normalizar_telefone_br
 
 
 def obter_benchmark_setorial(cnae: str, ramo: str) -> dict:
@@ -232,41 +379,61 @@ def processar_diagnostico(dados: dict) -> dict:
     taxa_conv = dados.get("taxa_conv")
     vendedores = dados.get("vendedores")
     meta_fat = dados.get("meta_fat")
+    gargalos_selecionados = dados.get("gargalos") or []
 
     bench = obter_benchmark_setorial(dados.get("cnae", ""), dados.get("ramo", ""))
     pontos_cegos = []
+    titulos_vistos = set()
 
+    def adicionar_ponto_cego(titulo: str, severidade: str, descricao: str, topo: bool = False):
+        if titulo in titulos_vistos:
+            return
+        titulos_vistos.add(titulo)
+        item = {"titulo": titulo, "severidade": severidade, "descricao": descricao}
+        if topo:
+            pontos_cegos.insert(0, item)
+        else:
+            pontos_cegos.append(item)
+
+    # 1. Pontos cegos selecionados pelo empresário no formulário
+    for cod in gargalos_selecionados:
+        info = GARGALOS_CATALOGO.get(cod)
+        if info:
+            adicionar_ponto_cego(info["titulo"], info["severidade"], info["descricao"])
+
+    # 2. Pontos cegos por indicadores não informados (gestão no escuro)
     if fat is None:
-        pontos_cegos.append({
-            "titulo": "Faturamento Mensal Não Informado",
-            "severidade": "CRÍTICO",
-            "descricao": "Sem visibilidade exata da receita mensal, qualquer meta de crescimento ou corte de custos vira chute."
-        })
+        adicionar_ponto_cego(
+            "Faturamento Mensal Não Informado",
+            "CRÍTICO",
+            "Sem visibilidade exata da receita mensal, qualquer meta de crescimento ou corte de custos vira chute."
+        )
     if margem is None:
-        pontos_cegos.append({
-            "titulo": "Margem de Contribuição Desconhecida (Gestão no Escuro)",
-            "severidade": "CRÍTICO",
-            "descricao": f"Você não soube informar sua margem. Usamos {bench['margem_bench']:.0f}% (média do setor) como referência, mas vender sem saber a margem real é a causa nº 1 de empresas que faturam alto e quebram sem caixa."
-        })
+        adicionar_ponto_cego(
+            "Margem de Contribuição Desconhecida (Gestão no Escuro)",
+            "CRÍTICO",
+            f"Você não soube informar sua margem. Usamos {bench['margem_bench']:.0f}% (média do setor) como referência, mas vender sem saber a margem real é a causa nº 1 de empresas que faturam alto e quebram sem caixa."
+        )
     if fixos is None:
-        pontos_cegos.append({
-            "titulo": "Custos Fixos Mensais Não Mapeados",
-            "severidade": "ALTO",
-            "descricao": "Sem conhecer o custo fixo total da estrutura, você não sabe em qual dia do mês a empresa começa a dar lucro."
-        })
+        adicionar_ponto_cego(
+            "Custos Fixos Mensais Não Mapeados",
+            "ALTO",
+            "Sem conhecer o custo fixo total da estrutura, você não sabe em qual dia do mês a empresa começa a dar lucro."
+        )
     if leads_mes is None or taxa_conv is None:
-        pontos_cegos.append({
-            "titulo": "Funil Comercial Sem Previsibilidade (Leads / Conversão)",
-            "severidade": "ALTO",
-            "descricao": "Faltam métricas de entrada de oportunidades ou taxa de fechamento. Sem medir o funil, o faturamento fica refém da sorte."
-        })
+        adicionar_ponto_cego(
+            "Funil Comercial Sem Previsibilidade (Leads / Conversão)",
+            "ALTO",
+            "Faltam métricas de entrada de oportunidades ou taxa de fechamento. Sem medir o funil, o faturamento fica refém da sorte."
+        )
     if ticket is None:
-        pontos_cegos.append({
-            "titulo": "Ticket Médio Não Monitorado",
-            "severidade": "MÉDIO",
-            "descricao": "Sem acompanhar o ticket médio, a equipe comercial tende a dar descontos excessivos para fechar pedidos."
-        })
+        adicionar_ponto_cego(
+            "Ticket Médio Não Monitorado",
+            "MÉDIO",
+            "Sem acompanhar o ticket médio, a equipe comercial tende a dar descontos excessivos para fechar pedidos."
+        )
 
+    # 3. Cálculos financeiros e alertas de performance vs benchmark
     margem_calc = margem if (margem is not None and margem > 0) else bench["margem_bench"]
     margem_dec = margem_calc / 100.0
 
@@ -284,11 +451,28 @@ def processar_diagnostico(dados: dict) -> dict:
             folga_caixa_pct = ((fat - ponto_equilibrio) / ponto_equilibrio) * 100.0
 
     if lucro_atual is not None and lucro_atual < 0:
-        pontos_cegos.insert(0, {
-            "titulo": f"Hemorragia de Caixa: Déficit Estimado de {fmt_moeda(abs(lucro_atual))}/mês",
-            "severidade": "CRÍTICO",
-            "descricao": f"Com a margem atual de {margem_calc:.1f}%, o faturamento não cobre os custos fixos de {fmt_moeda(fixos)}. A operação está queimando caixa todos os meses."
-        })
+        adicionar_ponto_cego(
+            f"Hemorragia de Caixa: Déficit Estimado de {fmt_moeda(abs(lucro_atual))}/mês",
+            "CRÍTICO",
+            f"Com a margem atual de {margem_calc:.1f}%, o faturamento não cobre os custos fixos de {fmt_moeda(fixos)}. A operação está queimando caixa todos os meses.",
+            topo=True
+        )
+
+    if margem is not None and margem < bench["margem_bench"]:
+        dif_m = bench["margem_bench"] - margem
+        adicionar_ponto_cego(
+            f"Margem de Contribuição {dif_m:.1f} p.p. Abaixo do Setor",
+            "ALTO",
+            f"Sua margem informada ({margem:.1f}%) está abaixo da referência de alta performance do segmento ({bench['margem_bench']:.0f}%), comprimindo a sobra de caixa."
+        )
+
+    if taxa_conv is not None and taxa_conv < bench["conv_bench"]:
+        dif_c = bench["conv_bench"] - taxa_conv
+        adicionar_ponto_cego(
+            f"Taxa de Fechamento {dif_c:.1f} p.p. Abaixo da Média do Mercado",
+            "ALTO",
+            f"Sua conversão ({taxa_conv:.1f}%) está abaixo do benchmark ({bench['conv_bench']:.0f}%). Melhorar abordagem e follow-up destrava faturamento imediato sem gastar mais com anúncios."
+        )
 
     potencial_oculto = 0.0
     if fat is not None and fat > 0 and margem is not None and margem < bench["margem_bench"]:
@@ -300,7 +484,8 @@ def processar_diagnostico(dados: dict) -> dict:
         potencial_oculto += vendas_extras * tk_ref
 
     if potencial_oculto <= 0:
-        potencial_oculto = (fat * 0.18) if (fat is not None and fat > 0) else 15000.0
+        fator_extra = 0.18 + (0.02 * min(len(gargalos_selecionados), 5))
+        potencial_oculto = (fat * fator_extra) if (fat is not None and fat > 0) else 15000.0
 
     if meta_fat is None or meta_fat <= 0:
         if ponto_equilibrio and fat:
@@ -375,7 +560,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.7",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DoutorCaixa/7.9",
         "Accept": "application/json"
     }
 
@@ -486,34 +671,34 @@ def cta_whatsapp(cnpj):
     lead = cur.fetchone()
 
     ts = agora_br()
-    wpp_msg = "Olá! Fiz meu diagnóstico no Doutor Caixa e quero estancar meus prejuízos."
+    wpp_msg_para_consultor = "Olá! Fiz meu diagnóstico no Doutor Caixa e quero estancar meus prejuízos."
 
     if lead:
+        lead_dict = dict(lead)
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
         conn.commit()
 
-        diag = json.loads(lead["diagnostico_json"] or "{}")
+        diag = json.loads(lead_dict.get("diagnostico_json") or "{}")
         if diag.get("wpp_msg"):
-            wpp_msg = diag["wpp_msg"]
+            wpp_msg_para_consultor = diag["wpp_msg"]
 
-        wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-        link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
+        link_abordar_cliente = gerar_link_abordagem_cliente(lead_dict, diag, tipo="urgente")
 
         alerta = (
             f"🔥 <b>ALERTA QUENTE — BOTÃO PRINCIPAL (ESTANCAR PREJUÍZO)!</b>\n\n"
-            f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
-            f"📍 <b>Local:</b> {lead['cidade'] or '-'}/{lead['uf'] or '-'}\n"
-            f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
-            f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n"
-            f"🚨 <b>Pontos Cegos:</b> {lead['qtd_cegas'] or 0}\n"
-            f"💰 <b>Potencial Oculto:</b> {fmt_moeda(lead['potencial_oculto'])}\n\n"
-            f"💬 <a href=\"{link_wpp_direto}\"><b>FALAR COM O CLIENTE NO WHATSAPP</b></a>"
+            f"🏢 <b>Empresa:</b> {lead_dict['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
+            f"📍 <b>Local:</b> {lead_dict.get('cidade') or '-'}/{lead_dict.get('uf') or '-'}\n"
+            f"👤 <b>Contato:</b> {lead_dict.get('solicitante') or '-'} ({lead_dict.get('cargo') or '-'})\n"
+            f"📱 <b>WhatsApp do Cliente:</b> {lead_dict.get('whatsapp') or '-'}\n"
+            f"🚨 <b>Pontos Cegos:</b> {lead_dict.get('qtd_cegas') or 0}\n"
+            f"💰 <b>Potencial Oculto:</b> {fmt_moeda(lead_dict.get('potencial_oculto'))}\n\n"
+            f"💬 <a href=\"{link_abordar_cliente}\"><b>ABORDAR CLIENTE NO WHATSAPP (MENSAGEM PERSONALIZADA)</b></a>"
         )
         enviar_telegram_async(alerta)
 
     conn.close()
-    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}", code=302)
+    wpp_destino = normalizar_telefone_br(WHATSAPP_CONSULTOR)
+    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg_para_consultor)}", code=302)
 
 
 @app.route("/cta-agenda/<cnpj>")
@@ -525,42 +710,50 @@ def cta_agenda(cnpj):
     lead = cur.fetchone()
 
     ts = agora_br()
-    wpp_msg = "Olá! Gostaria de agendar minha Sessão Estratégica de 20 min no Doutor Caixa."
+    wpp_msg_para_consultor = "Olá! Gostaria de agendar minha Sessão Estratégica de 20 min no Doutor Caixa."
 
     if lead:
+        lead_dict = dict(lead)
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
         conn.commit()
 
-        diag = json.loads(lead["diagnostico_json"] or "{}")
+        diag = json.loads(lead_dict.get("diagnostico_json") or "{}")
         if diag.get("wpp_msg_agenda"):
-            wpp_msg = diag["wpp_msg_agenda"]
-        elif lead["empresa"]:
-            wpp_msg = f"Olá! Sou {lead['solicitante']} da *{lead['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
+            wpp_msg_para_consultor = diag["wpp_msg_agenda"]
+        elif lead_dict.get("empresa"):
+            wpp_msg_para_consultor = f"Olá! Sou {lead_dict.get('solicitante')} da *{lead_dict['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
 
-        wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-        link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
+        link_abordar_cliente = gerar_link_abordagem_cliente(lead_dict, diag, tipo="agenda")
 
         alerta = (
             f"📅 <b>ALERTA — QUER AGENDAR REUNIÃO (BOTÃO SECUNDÁRIO)!</b>\n\n"
-            f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
-            f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
-            f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n\n"
-            f"💬 <a href=\"{link_wpp_direto}\"><b>COMBINAR HORÁRIO NO WHATSAPP</b></a>"
+            f"🏢 <b>Empresa:</b> {lead_dict['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
+            f"👤 <b>Contato:</b> {lead_dict.get('solicitante') or '-'} ({lead_dict.get('cargo') or '-'})\n"
+            f"📱 <b>WhatsApp do Cliente:</b> {lead_dict.get('whatsapp') or '-'}\n"
+            f"💰 <b>Potencial Oculto:</b> {fmt_moeda(lead_dict.get('potencial_oculto'))}\n\n"
+            f"💬 <a href=\"{link_abordar_cliente}\"><b>COMBINAR HORÁRIO NO WHATSAPP DO CLIENTE</b></a>"
         )
         enviar_telegram_async(alerta)
 
     conn.close()
-    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
-    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}", code=302)
+    wpp_destino = normalizar_telefone_br(WHATSAPP_CONSULTOR)
+    return redirect(f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg_para_consultor)}", code=302)
 
 
 # ==============================================================================
-# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF 100% COMPATÍVEL)
+# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO COMPLETO
 # ==============================================================================
 @app.route("/", methods=["GET"])
 def index():
     origem = request.args.get("utm_source") or request.args.get("src") or "Direto"
-    return render_template_string(TEMPLATE_DIAGNOSTICO, origem=origem)
+    gargalos_fin = [(k, v["label"]) for k, v in GARGALOS_CATALOGO.items() if v["etapa"] == "financeiro"]
+    gargalos_com = [(k, v["label"]) for k, v in GARGALOS_CATALOGO.items() if v["etapa"] == "comercial"]
+    return render_template_string(
+        TEMPLATE_DIAGNOSTICO,
+        origem=origem,
+        gargalos_fin=gargalos_fin,
+        gargalos_com=gargalos_com
+    )
 
 
 @app.route("/gerar-laudo", methods=["POST"])
@@ -575,6 +768,7 @@ def gerar_laudo():
     cargo = (request.form.get("cargo") or "").strip()
     whatsapp = (request.form.get("whatsapp") or "").strip()
     origem = (request.form.get("origem") or "Direto").strip()
+    gargalos = request.form.getlist("gargalos")
 
     if len(cnpj) != 14 or not empresa or not solicitante or not cargo or not whatsapp:
         return redirect(url_for("index"))
@@ -597,6 +791,7 @@ def gerar_laudo():
         "taxa_conv": parse_float_opcional(request.form.get("taxa_conv")),
         "vendedores": parse_float_opcional(request.form.get("vendedores")),
         "meta_fat": parse_float_opcional(request.form.get("meta_fat")),
+        "gargalos": gargalos,
     }
 
     diag = processar_diagnostico(dados)
@@ -619,7 +814,7 @@ def gerar_laudo():
                 faturamento = ?, margem = ?, custos_fixos = ?, ticket_medio = ?,
                 leads_mes = ?, taxa_conv = ?, vendedores = ?, meta_fat = ?,
                 ponto_equilibrio = ?, lucro_atual = ?, potencial_oculto = ?,
-                qtd_cegas = ?, pontos_cegos_json = ?, diagnostico_json = ?,
+                qtd_cegas = ?, gargalos_json = ?, pontos_cegos_json = ?, diagnostico_json = ?,
                 status_crm = ?, completo = 1, origem = ?, atualizado_em = ?
             WHERE cnpj = ?
         """, (
@@ -628,7 +823,8 @@ def gerar_laudo():
             dados["faturamento"], dados["margem"], dados["custos_fixos"], dados["ticket_medio"],
             dados["leads_mes"], dados["taxa_conv"], dados["vendedores"], diag["meta_fat"],
             diag["ponto_equilibrio"], diag["lucro_atual"], diag["potencial_oculto"],
-            diag["qtd_cegas"], json.dumps(diag["pontos_cegos"], ensure_ascii=False),
+            diag["qtd_cegas"], json.dumps(gargalos, ensure_ascii=False),
+            json.dumps(diag["pontos_cegos"], ensure_ascii=False),
             json.dumps(diag, ensure_ascii=False),
             status_final, origem, ts, cnpj
         ))
@@ -640,22 +836,60 @@ def gerar_laudo():
                 faturamento, margem, custos_fixos, ticket_medio,
                 leads_mes, taxa_conv, vendedores, meta_fat,
                 ponto_equilibrio, lucro_atual, potencial_oculto,
-                qtd_cegas, pontos_cegos_json, diagnostico_json,
+                qtd_cegas, gargalos_json, pontos_cegos_json, diagnostico_json,
                 status_crm, completo, origem, criado_em, atualizado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """, (
             cnpj, empresa, cidade, uf, cnae, ramo,
             solicitante, cargo, whatsapp,
             dados["faturamento"], dados["margem"], dados["custos_fixos"], dados["ticket_medio"],
             dados["leads_mes"], dados["taxa_conv"], dados["vendedores"], diag["meta_fat"],
             diag["ponto_equilibrio"], diag["lucro_atual"], diag["potencial_oculto"],
-            diag["qtd_cegas"], json.dumps(diag["pontos_cegos"], ensure_ascii=False),
+            diag["qtd_cegas"], json.dumps(gargalos, ensure_ascii=False),
+            json.dumps(diag["pontos_cegos"], ensure_ascii=False),
             json.dumps(diag, ensure_ascii=False),
             status_final, origem, ts, ts
         ))
 
     conn.commit()
     conn.close()
+
+    sync_supabase_async({
+        "cnpj": cnpj,
+        "empresa": empresa,
+        "cidade": cidade,
+        "uf": uf,
+        "cnae": cnae,
+        "ramo": ramo,
+        "solicitante": solicitante,
+        "cargo": cargo,
+        "whatsapp": whatsapp,
+        "faturamento": dados["faturamento"],
+        "margem": dados["margem"],
+        "custos_fixos": dados["custos_fixos"],
+        "ponto_equilibrio": diag["ponto_equilibrio"],
+        "lucro_atual": diag["lucro_atual"],
+        "potencial_oculto": diag["potencial_oculto"],
+        "qtd_cegas": diag["qtd_cegas"],
+        "status_crm": status_final,
+        "completo": True,
+        "origem": origem,
+        "atualizado_em": ts
+    })
+
+    link_abordar_cliente = gerar_link_abordagem_cliente(dados, diag, tipo="novo")
+    alerta_novo = (
+        f"✅ <b>NOVO DIAGNÓSTICO CONCLUÍDO!</b>\n\n"
+        f"🏢 <b>Empresa:</b> {empresa} ({formatar_cnpj(cnpj)})\n"
+        f"📍 <b>Cidade/UF:</b> {cidade or '-'}/{uf or '-'}\n"
+        f"👤 <b>Solicitante:</b> {solicitante} ({cargo})\n"
+        f"📱 <b>WhatsApp do Cliente:</b> {whatsapp}\n"
+        f"💵 <b>Faturamento:</b> {fmt_moeda(dados['faturamento'])}\n"
+        f"🚨 <b>Pontos Cegos:</b> {diag['qtd_cegas']}\n"
+        f"💰 <b>Potencial Oculto:</b> {fmt_moeda(diag['potencial_oculto'])}/mês\n\n"
+        f"💬 <a href=\"{link_abordar_cliente}\"><b>ABORDAR CLIENTE NO WHATSAPP (MENSAGEM PERSONALIZADA)</b></a>"
+    )
+    enviar_telegram_async(alerta_novo)
 
     return redirect(url_for("ver_laudo", cnpj=cnpj))
 
@@ -673,6 +907,7 @@ def ver_laudo(cnpj):
         return redirect(url_for("index"))
 
     dados = dict(lead)
+    dados["gargalos"] = json.loads(dados.get("gargalos_json") or "[]")
     diag = json.loads(dados.get("diagnostico_json") or "{}")
     if not diag:
         diag = processar_diagnostico(dados)
@@ -698,10 +933,12 @@ def baixar_pdf(cnpj):
         return "Lead não encontrado", 404
 
     dados = dict(lead)
+    dados["gargalos"] = json.loads(dados.get("gargalos_json") or "[]")
     diag = json.loads(dados.get("diagnostico_json") or "{}")
     if not diag:
         diag = processar_diagnostico(dados)
 
+    bench = diag.get("bench") or obter_benchmark_setorial(dados.get("cnae", ""), dados.get("ramo", ""))
     logo_path = os.path.join(app.root_path, "static", "logo.png")
     qr_path = os.path.join(app.root_path, "static", "qrcode_whatsapp.png")
 
@@ -709,146 +946,287 @@ def baixar_pdf(cnpj):
         def header(self):
             if os.path.exists(logo_path):
                 try:
-                    self.image(logo_path, 12, 9, 30)
+                    self.image(logo_path, 12, 8, 28)
                 except Exception:
                     pass
             self.set_text_color(15, 46, 28)
-            self.set_font("Helvetica", "B", 15)
-            self.set_xy(45, 14)
-            self.cell(153, 7, pdf_safe("LAUDO EXECUTIVO DE CAIXA E VENDAS"), border=0, align="R")
+            self.set_font("Helvetica", "B", 14.5)
+            self.set_xy(44, 12)
+            self.cell(154, 6.5, pdf_safe("LAUDO EXECUTIVO DE CAIXA E VENDAS"), border=0, align="R")
             self.set_font("Helvetica", "", 8.5)
             self.set_text_color(100, 110, 105)
-            self.set_xy(45, 22)
-            self.cell(153, 5, pdf_safe("DOUTOR CAIXA - INTELIGENCIA COMERCIAL E FINANCEIRA"), border=0, align="R")
+            self.set_xy(44, 19.5)
+            self.cell(154, 4.5, pdf_safe("DOUTOR CAIXA - INTELIGENCIA COMERCIAL E FINANCEIRA"), border=0, align="R")
+            self.set_xy(44, 24.5)
+            self.cell(154, 4, pdf_safe(f"Emitido em: {dados.get('atualizado_em') or agora_br()}"), border=0, align="R")
             self.set_draw_color(213, 232, 220)
             self.set_line_width(0.4)
-            self.line(12, 36, 198, 36)
-            self.set_y(42)
+            self.line(12, 33, 198, 33)
+            self.set_y(37)
 
         def footer(self):
-            self.set_y(-15)
+            self.set_y(-14)
             self.set_font("Helvetica", "", 7.5)
             self.set_text_color(120, 130, 124)
-            self.cell(0, 4, pdf_safe(f"Doutor Caixa | Inteligencia Financeira & Comercial - Pagina {self.page_no()}"), ln=1, align="C")
-            self.cell(0, 4, pdf_safe("Doutor Caixa e uma empresa da MaqTrak - Hub de Solucoes em Inteligencia de Mercado."), align="C")
+            self.cell(0, 3.8, pdf_safe(f"Doutor Caixa | Inteligencia Financeira & Comercial - Pagina {self.page_no()}"), ln=1, align="C")
+            self.cell(0, 3.8, pdf_safe("Doutor Caixa e uma empresa da MaqTrak - Hub de Solucoes em Inteligencia de Mercado."), align="C")
 
     pdf = PDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=17)
     pdf.add_page()
 
+    # --------------------------------------------------------------------------
+    # 1. IDENTIFICAÇÃO DA EMPRESA & PARÂMETROS INFORMADOS
+    # --------------------------------------------------------------------------
+    y0 = pdf.get_y()
+    box1_h = 27 if dados.get("cnae") else 22
     pdf.set_fill_color(247, 250, 248)
-    pdf.rect(12, pdf.get_y(), 186, 22, "F")
+    pdf.rect(12, y0, 186, box1_h, "F")
     pdf.set_fill_color(0, 200, 83)
-    pdf.rect(12, pdf.get_y(), 2.5, 22, "F")
+    pdf.rect(12, y0, 2.5, box1_h, "F")
 
-    pdf.set_xy(18, pdf.get_y() + 3)
+    pdf.set_xy(18, y0 + 2.5)
     pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(0, 0, 0)
-    loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get("cidade") and dados.get("uf") else ""
-    pdf.cell(175, 5, pdf_safe(f"EMPRESA: {dados['empresa']}{loc_pdf} | CNPJ: {formatar_cnpj(cnpj_limpo)}"), ln=1)
-    pdf.set_x(18)
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(30, 30, 30)
-    pdf.cell(175, 4.5, pdf_safe(f"Segmento: {dados['ramo']} | Solicitante: {dados['solicitante']} ({dados['cargo']})"), ln=1)
-    pdf.set_x(18)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_text_color(0, 166, 69)
-    pdf.cell(175, 4.5, pdf_safe(f"Faturamento: {fmt_moeda(dados.get('faturamento'))} | Pontos Cegos: {diag.get('qtd_cegas', 0)}"), ln=1)
-    pdf.ln(8)
-
-    y = pdf.get_y()
-    pdf.set_fill_color(235, 245, 251)
-    pdf.rect(12, y, 186, 24, "F")
-    pdf.set_fill_color(41, 128, 185)
-    pdf.rect(12, y, 2.5, 24, "F")
-    pdf.set_xy(18, y + 3)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_text_color(41, 128, 185)
-    pdf.cell(175, 4.5, pdf_safe("PONTO DE EQUILIBRIO & SAUDE FINANCEIRA"), ln=1)
-    pdf.set_x(18)
-    pdf.set_font("Helvetica", "B", 13)
     pdf.set_text_color(15, 23, 42)
-    pe_txt = fmt_moeda(diag.get("ponto_equilibrio")) if diag.get("ponto_equilibrio") else "Nao calculavel"
-    lucro_txt = fmt_moeda(diag.get("lucro_atual")) if diag.get("lucro_atual") is not None else "Nao informado"
-    pdf.cell(175, 6, pdf_safe(f"Empate Minimo: {pe_txt}  |  Resultado Operacional: {lucro_txt}/mes"), ln=1)
+    loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get("cidade") and dados.get("uf") else ""
+    pdf.cell(176, 5, pdf_safe(f"EMPRESA: {dados['empresa']}{loc_pdf} | CNPJ: {formatar_cnpj(cnpj_limpo)}"), ln=1)
+
     pdf.set_x(18)
     pdf.set_font("Helvetica", "", 8.5)
-    pdf.set_text_color(50, 60, 70)
-    pdf.cell(175, 4.5, pdf_safe(f"Potencial Oculto Mensal (Dinheiro na Mesa): {fmt_moeda(diag.get('potencial_oculto'))}"), ln=1)
-    pdf.ln(10)
+    pdf.set_text_color(45, 55, 65)
+    pdf.cell(176, 4.5, pdf_safe(f"Solicitante: {dados['solicitante']} ({dados['cargo']}) | WhatsApp: {dados.get('whatsapp') or '-'}"), ln=1)
 
-    pdf.set_font("Helvetica", "B", 11)
+    if dados.get("cnae"):
+        pdf.set_x(18)
+        pdf.cell(176, 4.5, pdf_safe(f"CNAE Oficial: {dados['cnae'][:88]}"), ln=1)
+
+    pdf.set_x(18)
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(0, 150, 62)
+    margem_lbl = f"{diag.get('margem_usada', 0)}%" + (" (estimada)" if diag.get("margem_foi_estimada") else "")
+    pdf.cell(
+        176, 4.5,
+        pdf_safe(f"Fat. Mensal: {fmt_moeda(dados.get('faturamento'))} | Margem: {margem_lbl} | Custos Fixos: {fmt_moeda(dados.get('custos_fixos'))}"),
+        ln=1
+    )
+    pdf.set_y(y0 + box1_h + 4)
+
+    # --------------------------------------------------------------------------
+    # 2. OS 4 KPIs PRINCIPAIS (ESPELHO DOS 4 CARDS DO LAUDO ONLINE)
+    # --------------------------------------------------------------------------
+    y_kpi = pdf.get_y()
+    card_w = 44.25
+    gap_w = 3.0
+    card_h = 24
+
+    pe_txt = fmt_moeda(diag.get("ponto_equilibrio")) if diag.get("ponto_equilibrio") else "Nao calculavel"
+    lucro_val = diag.get("lucro_atual")
+    lucro_txt = f"{fmt_moeda(lucro_val)}/mes" if lucro_val is not None else "Ponto Cego"
+    pot_txt = f"+{fmt_moeda(diag.get('potencial_oculto'))}"
+    qtd_c = diag.get("qtd_cegas", 0)
+
+    kpis = [
+        ("PONTO DE EQUILIBRIO", pe_txt, "Minimo/mes p/ empatar", (15, 23, 42)),
+        ("RESULTADO OPERACIONAL", lucro_txt, "Geracao de caixa/mes", (220, 38, 38) if (lucro_val is not None and lucro_val < 0) else (0, 166, 69)),
+        ("DINHEIRO NA MESA", pot_txt, "Potencial oculto/mes", (217, 119, 6)),
+        ("PONTOS CEGOS", f"{qtd_c} alerta(s)", "Riscos identificados", (220, 38, 38) if qtd_c >= 2 else (0, 166, 69)),
+    ]
+
+    for idx, (titulo_k, valor_k, nota_k, cor_v) in enumerate(kpis):
+        xk = 12 + idx * (card_w + gap_w)
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(226, 232, 240)
+        pdf.rect(xk, y_kpi, card_w, card_h, "DF")
+
+        pdf.set_xy(xk + 2.5, y_kpi + 2.5)
+        pdf.set_font("Helvetica", "B", 6.8)
+        pdf.set_text_color(100, 116, 139)
+        pdf.cell(card_w - 5, 3.8, pdf_safe(titulo_k), ln=1)
+
+        pdf.set_x(xk + 2.5)
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_text_color(*cor_v)
+        pdf.cell(card_w - 5, 5.5, pdf_safe(valor_k), ln=1)
+
+        pdf.set_x(xk + 2.5)
+        pdf.set_font("Helvetica", "", 6.8)
+        pdf.set_text_color(100, 116, 139)
+        pdf.cell(card_w - 5, 3.8, pdf_safe(nota_k), ln=1)
+
+    pdf.set_y(y_kpi + card_h + 4.5)
+
+    # --------------------------------------------------------------------------
+    # 3. BENCHMARK SETORIAL (CNAE & SEGMENTO)
+    # --------------------------------------------------------------------------
+    y_b = pdf.get_y()
+    texto_bench = (
+        f"Empresas de alta performance no segmento {bench.get('segmento')} operam com margem acima de "
+        f"{int(bench.get('margem_bench', 32))}% e fechamento de {int(bench.get('conv_bench', 24))}%. "
+        f"{bench.get('alerta', '')}"
+    )
+    linhas_bench = max(2, (len(texto_bench) // 98) + 1)
+    bench_h = 10 + (linhas_bench * 4.2)
+
+    pdf.set_fill_color(239, 246, 255)
+    pdf.rect(12, y_b, 186, bench_h, "F")
+    pdf.set_fill_color(29, 78, 216)
+    pdf.rect(12, y_b, 2.5, bench_h, "F")
+
+    pdf.set_xy(17, y_b + 2.5)
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(29, 78, 216)
+    cnae_hdr = f" - CNAE: {dados['cnae'][:60]}" if dados.get("cnae") else ""
+    pdf.cell(177, 4.5, pdf_safe(f"BENCHMARK SETORIAL{cnae_hdr}"), ln=1)
+
+    pdf.set_x(17)
+    pdf.set_font("Helvetica", "", 8.2)
+    pdf.set_text_color(30, 58, 138)
+    pdf.multi_cell(177, 4.2, pdf_safe(texto_bench))
+    pdf.set_y(y_b + bench_h + 5)
+
+    # --------------------------------------------------------------------------
+    # 4. RADAR DE PONTOS CEGOS & RISCOS DE CAIXA (MULTI-LINHA COMPLETO)
+    # --------------------------------------------------------------------------
+    pdf.set_font("Helvetica", "B", 10.5)
     pdf.set_text_color(15, 23, 42)
-    pdf.cell(186, 6, pdf_safe("PRINCIPAIS PONTOS CEGOS DE GESTAO"), ln=1)
-    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(186, 6, pdf_safe("RADAR DE PONTOS CEGOS & RISCOS DE CAIXA"), ln=1)
+    pdf.ln(1)
 
-    for item in diag.get("pontos_cegos", []):
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        y_item = pdf.get_y()
-        pdf.set_fill_color(254, 242, 242)
-        pdf.rect(12, y_item, 186, 14, "F")
-        pdf.set_fill_color(239, 68, 68)
-        pdf.rect(12, y_item, 2, 14, "F")
-        pdf.set_xy(17, y_item + 2)
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_text_color(185, 28, 28)
-        pdf.cell(175, 4.5, pdf_safe(f"[{item.get('severidade', 'ALTO')}] {item.get('titulo', '')}"), ln=1)
-        pdf.set_x(17)
-        pdf.set_font("Helvetica", "", 8.5)
-        pdf.set_text_color(50, 60, 70)
-        pdf.cell(175, 4.5, pdf_safe(item.get("descricao", "")), ln=1)
-        pdf.ln(4)
+    pontos_lista = diag.get("pontos_cegos", [])
+    if not pontos_lista:
+        y_ok = pdf.get_y()
+        pdf.set_fill_color(236, 253, 245)
+        pdf.rect(12, y_ok, 186, 12, "F")
+        pdf.set_fill_color(0, 200, 83)
+        pdf.rect(12, y_ok, 2.5, 12, "F")
+        pdf.set_xy(17, y_ok + 3.5)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(6, 95, 70)
+        pdf.cell(176, 5, pdf_safe("Nenhum ponto cego critico sinalizado. Foco total na captura do potencial oculto e metas comerciais."), ln=1)
+        pdf.set_y(y_ok + 15)
+    else:
+        for item in pontos_lista:
+            desc_txt = item.get("descricao", "")
+            linhas_desc = max(1, (len(desc_txt) // 95) + 1)
+            item_h = 8.5 + (linhas_desc * 4.1)
 
-    if pdf.get_y() > 210:
+            if pdf.get_y() + item_h > 272:
+                pdf.add_page()
+
+            y_item = pdf.get_y()
+            pdf.set_fill_color(254, 242, 242)
+            pdf.rect(12, y_item, 186, item_h, "F")
+            pdf.set_fill_color(239, 68, 68)
+            pdf.rect(12, y_item, 2.2, item_h, "F")
+
+            pdf.set_xy(17, y_item + 2)
+            pdf.set_font("Helvetica", "B", 8.8)
+            pdf.set_text_color(185, 28, 28)
+            pdf.cell(177, 4.5, pdf_safe(f"[{item.get('severidade', 'ALTO')}] {item.get('titulo', '')}"), ln=1)
+
+            pdf.set_x(17)
+            pdf.set_font("Helvetica", "", 8.1)
+            pdf.set_text_color(51, 65, 85)
+            pdf.multi_cell(177, 4.0, pdf_safe(desc_txt))
+            pdf.set_y(y_item + item_h + 2.5)
+
+    # --------------------------------------------------------------------------
+    # 5. ENGENHARIA DE METAS COMERCIAIS (ESPELHO DO LAUDO ONLINE)
+    # --------------------------------------------------------------------------
+    if pdf.get_y() + 34 > 272:
         pdf.add_page()
 
-    y_cta = pdf.get_y() + 6
-    pdf.set_fill_color(15, 46, 28)
-    pdf.rect(12, y_cta, 186, 42, "F")
-    pdf.set_fill_color(0, 200, 83)
-    pdf.rect(12, y_cta, 3, 42, "F")
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 10.5)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(186, 6, pdf_safe(f"ENGENHARIA DE METAS PARA BATER {fmt_moeda(diag.get('meta_fat'))}/MES"), ln=1)
+    pdf.ln(1)
 
-    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+    y_m = pdf.get_y()
+    metas_boxes = [
+        ("VENDAS NO MES", f"{fmt_num(diag.get('vendas_necessarias_mes'))} fechamentos"),
+        ("OPORTUNIDADES/MES", f"{fmt_num(diag.get('oportunidades_mes'))} orcamentos"),
+        ("RITMO POR VENDEDOR", f"{diag.get('contatos_dia_por_vendedor', 30)} contatos/dia"),
+        ("CADENCIA SEMANAL", f"{diag.get('visitas_semana_por_vendedor', 20)} visitas/reunioes"),
+    ]
+    for idx, (m_lbl, m_val) in enumerate(metas_boxes):
+        xm = 12 + idx * (card_w + gap_w)
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(203, 213, 225)
+        pdf.rect(xm, y_m, card_w, 17, "DF")
+
+        pdf.set_xy(xm + 2.5, y_m + 2.5)
+        pdf.set_font("Helvetica", "B", 6.8)
+        pdf.set_text_color(100, 116, 139)
+        pdf.cell(card_w - 5, 3.8, pdf_safe(m_lbl), ln=1)
+
+        pdf.set_x(xm + 2.5)
+        pdf.set_font("Helvetica", "B", 9.2)
+        pdf.set_text_color(15, 23, 42)
+        pdf.cell(card_w - 5, 5.5, pdf_safe(m_val), ln=1)
+
+    pdf.set_y(y_m + 21)
+
+    # --------------------------------------------------------------------------
+    # 6. PLANO DE AÇÃO & SESSÃO ESTRATÉGICA + QR CODE WHATSAPP
+    # --------------------------------------------------------------------------
+    if pdf.get_y() + 62 > 274:
+        pdf.add_page()
+
+    y_cta = pdf.get_y() + 2
+    cta_h = 56
+    pdf.set_fill_color(15, 46, 28)
+    pdf.rect(12, y_cta, 186, cta_h, "F")
+    pdf.set_fill_color(0, 200, 83)
+    pdf.rect(12, y_cta, 3, cta_h, "F")
+
+    wpp_destino = normalizar_telefone_br(WHATSAPP_CONSULTOR)
     link_wpp_pdf = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(diag.get('wpp_msg', ''))}"
 
-    pdf.set_xy(18, y_cta + 4)
-    pdf.set_font("Helvetica", "B", 8.5)
-    pdf.set_text_color(243, 156, 18)
-    pdf.cell(125, 4.5, pdf_safe("CADA DIA SEM ACAO CUSTA MARGEM E DINHEIRO NO CAIXA."), ln=1)
+    pdf.set_xy(18, y_cta + 3.5)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(254, 240, 138)
+    pdf.cell(128, 4.2, pdf_safe("SESSAO DE DIAGNOSTICO COMERCIAL & CAIXA (20 MIN - GRATUITA)"), ln=1)
 
     pdf.set_x(18)
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(0, 200, 83)
-    pdf.cell(125, 6, pdf_safe("FALE AGORA COM O ESPECIALISTA"), ln=1, link=link_wpp_pdf)
+    pdf.cell(128, 5.5, pdf_safe("ENTREGAVEIS DA SESSAO COM O ESPECIALISTA:"), ln=1, link=link_wpp_pdf)
 
     pdf.set_x(18)
-    pdf.set_font("Helvetica", "", 8.2)
+    pdf.set_font("Helvetica", "", 7.9)
     pdf.set_text_color(235, 242, 238)
-    pdf.multi_cell(125, 4.2, pdf_safe("Aponte a camera do seu celular para o QR Code ao lado e fale diretamente com o consultor para destravar seu plano de acao:"))
+    pdf.multi_cell(
+        128, 3.9,
+        pdf_safe(
+            "1. Revisao da Margem & Ponto de Equilibrio: estancamento imediato de vazamentos.\n"
+            "2. Ajuste do Funil Diario: metas de contatos/dia e visitas semanais da equipe.\n"
+            f"3. Plano de Acao 30 Dias: roteiro para capturar {fmt_moeda(diag.get('potencial_oculto'))}/mes na mesa."
+        )
+    )
 
-    y_num = y_cta + 30
+    y_num = y_cta + 43
     pdf.set_fill_color(24, 68, 42)
-    pdf.rect(18, y_num, 84, 8.5, "F")
+    pdf.rect(18, y_num, 126, 8.5, "F")
     pdf.set_xy(20, y_num + 1.8)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(80, 5, pdf_safe(f"WhatsApp: {WHATSAPP_CONSULTOR}"), link=link_wpp_pdf)
+    pdf.cell(122, 5, pdf_safe(f"Aponte a camera p/ QR Code ou fale no WhatsApp: {WHATSAPP_CONSULTOR}"), link=link_wpp_pdf)
 
     pdf.set_fill_color(255, 255, 255)
-    pdf.rect(152, y_cta + 4, 34, 34, "F")
+    pdf.rect(152, y_cta + 9, 36, 36, "F")
     qr_ok = False
     if os.path.exists(qr_path):
         try:
-            pdf.image(qr_path, x=153, y=y_cta + 5, w=32, h=32, link=link_wpp_pdf)
+            pdf.image(qr_path, x=153.5, y=y_cta + 10.5, w=33, h=33, link=link_wpp_pdf)
             qr_ok = True
         except Exception:
             qr_ok = False
     if not qr_ok:
-        pdf.set_xy(152, y_cta + 16)
+        pdf.set_xy(152, y_cta + 24)
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(15, 46, 28)
-        pdf.cell(34, 4, pdf_safe("QR WhatsApp"), align="C")
+        pdf.cell(36, 4, pdf_safe("QR WhatsApp"), align="C")
 
     try:
         raw_out = pdf.output()
@@ -888,7 +1266,12 @@ def painel():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM leads ORDER BY id DESC")
-    rows = [dict(r) for r in cur.fetchall()]
+    rows = []
+    for r in cur.fetchall():
+        item = dict(r)
+        diag_item = json.loads(item.get("diagnostico_json") or "{}")
+        item["link_wpp_abordagem"] = gerar_link_abordagem_cliente(item, diag_item, tipo="novo")
+        rows.append(item)
     conn.close()
 
     total_leads = len(rows)
@@ -918,7 +1301,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML
+# TEMPLATES HTML (COM SELEÇÃO DE PONTOS CEGOS E VALIDAÇÃO EM VERMELHO)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -933,7 +1316,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         :root { --primary: #00C853; --primary-dark: #00A645; --bg: #F1F6F3; --card: #FFFFFF; --text: #0F172A; --muted: #64748B; --border: #E2E8F0; --danger: #EF4444; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
-        .container { width: 100%; max-width: 540px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
+        .container { width: 100%; max-width: 560px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
         
         .topbar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 24px; }
         .brand-center { grid-column: 2; display: flex; justify-content: center; align-items: center; }
@@ -956,11 +1339,11 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         .badge-req { font-size: 11px; color: #00A645; background: #DCFCE7; padding: 2px 7px; border-radius: 6px; font-weight: 700; }
         .badge-opt { font-size: 11px; color: #64748B; background: #F1F5F9; padding: 2px 7px; border-radius: 6px; font-weight: 600; }
 
-        input, select { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; color: var(--text); background: #fff; outline: none; }
+        input[type="text"], input[type="number"], input[type="tel"], select { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; color: var(--text); background: #fff; outline: none; transition: border-color 0.2s, background-color 0.2s; }
         input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.14); }
-        input.input-erro { border-color: var(--danger); background: #FEF2F2; }
+        input.input-erro, select.input-erro { border-color: var(--danger) !important; background: #FEF2F2 !important; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14) !important; }
         .status-cnpj { font-size: 12.5px; font-weight: 600; margin-top: 6px; min-height: 18px; }
-        .err-msg { font-size: 12px; color: var(--danger); font-weight: 600; margin-top: 4px; display: none; }
+        .err-msg { font-size: 12px; color: var(--danger); font-weight: 700; margin-top: 5px; display: none; }
         .err-msg.visible { display: block; }
 
         .ramo-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px; font-size: 12.5px; color: #334155; line-height: 1.45; margin-bottom: 20px; }
@@ -970,6 +1353,16 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
         .calc-box input { padding: 9px 11px; font-size: 13.5px; }
         .btn-aplicar-calc { margin-top: 10px; width: 100%; padding: 9px; border: none; border-radius: 9px; background: #0F172A; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+
+        /* CHECKBOXES INTERATIVOS DE PONTOS CEGOS / GARGALOS */
+        .cegos-box { background: #FFF8F6; border: 1.5px solid #FED7AA; border-radius: 14px; padding: 14px; margin-top: 18px; margin-bottom: 18px; }
+        .cegos-title { font-size: 13px; font-weight: 800; color: #9A3412; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+        .cegos-sub { font-size: 12px; color: #7C2D12; margin-bottom: 10px; line-height: 1.4; }
+        .cego-check { display: flex; align-items: flex-start; gap: 10px; background: #fff; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s ease; }
+        .cego-check:hover { border-color: #F97316; }
+        .cego-check.checked { border-color: #EF4444; background: #FEF2F2; }
+        .cego-check input[type="checkbox"] { width: 18px; height: 18px; margin-top: 1px; accent-color: #EF4444; flex-shrink: 0; cursor: pointer; }
+        .cego-check span { font-size: 13px; font-weight: 600; color: #1E293B; line-height: 1.35; }
 
         .teaser-card { background: linear-gradient(135deg, #0F172A, #1E293B); color: #fff; border-radius: 16px; padding: 18px; margin-bottom: 20px; }
         .teaser-badge { display: inline-block; background: rgba(0,200,83,0.2); color: #4ADE80; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; margin-bottom: 10px; }
@@ -1004,12 +1397,13 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <div class="progress-fill" id="progress-fill"></div>
     </div>
 
-    <form id="form-diag" method="POST" action="/gerar-laudo" novalidate>
+    <form id="form-diag" method="POST" action="/gerar-laudo" novalidate onsubmit="return validarFinal(event)">
         <input type="hidden" name="cidade" id="inp_cidade">
         <input type="hidden" name="uf" id="inp_uf">
         <input type="hidden" name="cnae" id="inp_cnae">
         <input type="hidden" name="origem" id="inp_origem" value="{{ origem }}">
 
+        <!-- ETAPA 1 -->
         <div class="step active" id="step-1">
             <h1>1. Dados da Empresa</h1>
             <p class="subtitle">Digite o CNPJ para localizarmos sua empresa automaticamente.</p>
@@ -1017,16 +1411,16 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
                 <label>CNPJ Válido (Somente números) <span class="badge-req">Obrigatório</span></label>
                 <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" maxlength="18" inputmode="numeric">
                 <div class="status-cnpj" id="cnpj_status"></div>
-                <div class="err-msg" id="err_cnpj">Informe um CNPJ válido com 14 dígitos.</div>
+                <div class="err-msg" id="err_cnpj">⚠️ Informe um CNPJ válido com 14 dígitos.</div>
             </div>
             <div class="field">
                 <label>Nome da Empresa <span class="badge-req">Obrigatório</span></label>
                 <input type="text" id="empresa_nome" name="empresa" placeholder="Ex: Distribuidora Recife Ltda">
-                <div class="err-msg" id="err_empresa_nome">Informe o nome da empresa.</div>
+                <div class="err-msg" id="err_empresa_nome">⚠️ Informe o nome da empresa.</div>
             </div>
             <div class="field">
                 <label>Ramo de Atuação / Modelo de Venda</label>
-                <select id="ramo" name="ramo">
+                <select id="ramo" name="ramo" onchange="atualizarDescRamo()">
                     <option value="Comércio / Varejo / Distribuição (Produtos)">Comércio / Varejo / Distribuição (Produtos)</option>
                     <option value="Serviços B2B / Consultoria / Agência / TI">Serviços B2B / Consultoria / Agência / TI</option>
                     <option value="Clínicas / Saúde / Estética">Clínicas / Saúde / Estética</option>
@@ -1042,9 +1436,10 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- ETAPA 2 -->
         <div class="step" id="step-2">
             <h1>2. Raio-X Financeiro</h1>
-            <p class="subtitle">Preencha o que você souber agora. Campos em branco viram pontos de melhoria no laudo.</p>
+            <p class="subtitle">Preencha os números que souber e marque os gargalos financeiros que percebe hoje.</p>
             <div class="field">
                 <label>Faturamento Mensal Médio (R$) <span class="badge-opt">Opcional</span></label>
                 <input type="text" id="faturamento" name="faturamento" placeholder="Ex: 120.000,00" class="mask-moeda">
@@ -1067,29 +1462,55 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
                 <label>Custos Fixos Mensais Totais (R$) <span class="badge-opt">Opcional</span></label>
                 <input type="text" id="custos_fixos" name="custos_fixos" placeholder="Ex: 38.000,00" class="mask-moeda">
             </div>
+
+            <div class="cegos-box">
+                <div class="cegos-title">🚨 Pontos Cegos Financeiros (Marque o que acontece hoje)</div>
+                <div class="cegos-sub">Selecione os sintomas abaixo para incluirmos no seu diagnóstico:</div>
+                {% for cod, lbl in gargalos_fin %}
+                <label class="cego-check" onclick="toggleCheckStyle(this)">
+                    <input type="checkbox" name="gargalos" value="{{ cod }}">
+                    <span>{{ lbl }}</span>
+                </label>
+                {% endfor %}
+            </div>
+
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(1)">← Voltar</button>
                 <button type="button" class="btn-primary" onclick="irParaEtapa(3)">Avançar →</button>
             </div>
         </div>
 
+        <!-- ETAPA 3 -->
         <div class="step" id="step-3">
             <h1>3. Motor Comercial & Metas</h1>
-            <p class="subtitle">Cruzamento de oportunidades e capacidade da equipe.</p>
-            <div class="field"><label>Ticket Médio por Venda (R$) <span class="badge-opt">Opcional</span></label><input type="text" id="ticket_medio" name="ticket_medio" class="mask-moeda"></div>
-            <div class="field"><label>Oportunidades / Orçamentos por Mês <span class="badge-opt">Opcional</span></label><input type="number" id="leads_mes" name="leads_mes"></div>
-            <div class="field"><label>Taxa de Fechamento (%) <span class="badge-opt">Opcional</span></label><input type="text" id="taxa_conv" name="taxa_conv"></div>
-            <div class="field"><label>Equipe Comercial (Vendedores) <span class="badge-opt">Opcional</span></label><input type="number" id="vendedores" name="vendedores" value="1"></div>
-            <div class="field"><label>Meta de Faturamento (R$/mês) <span class="badge-opt">Opcional</span></label><input type="text" id="meta_fat" name="meta_fat" class="mask-moeda"></div>
+            <p class="subtitle">Cruzamento de oportunidades, capacidade da equipe e gargalos de vendas.</p>
+            <div class="field"><label>Ticket Médio por Venda (R$) <span class="badge-opt">Opcional</span></label><input type="text" id="ticket_medio" name="ticket_medio" placeholder="Ex: 2.500,00" class="mask-moeda"></div>
+            <div class="field"><label>Oportunidades / Orçamentos por Mês <span class="badge-opt">Opcional</span></label><input type="number" id="leads_mes" name="leads_mes" placeholder="Ex: 120"></div>
+            <div class="field"><label>Taxa de Fechamento (%) <span class="badge-opt">Opcional</span></label><input type="text" id="taxa_conv" name="taxa_conv" placeholder="Ex: 20"></div>
+            <div class="field"><label>Equipe Comercial (Vendedores) <span class="badge-opt">Opcional</span></label><input type="number" id="vendedores" name="vendedores" value="1" min="1"></div>
+            <div class="field"><label>Meta de Faturamento (R$/mês) <span class="badge-opt">Opcional</span></label><input type="text" id="meta_fat" name="meta_fat" placeholder="Ex: 150.000,00" class="mask-moeda"></div>
+
+            <div class="cegos-box">
+                <div class="cegos-title">🎯 Pontos Cegos Comerciais (Marque os gargalos de vendas)</div>
+                <div class="cegos-sub">Estes pontos entrarão no seu plano de ação comercial:</div>
+                {% for cod, lbl in gargalos_com %}
+                <label class="cego-check" onclick="toggleCheckStyle(this)">
+                    <input type="checkbox" name="gargalos" value="{{ cod }}">
+                    <span>{{ lbl }}</span>
+                </label>
+                {% endfor %}
+            </div>
+
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(2)">← Voltar</button>
                 <button type="button" class="btn-primary" onclick="prepararEtapa4()">Ver Meu Diagnóstico →</button>
             </div>
         </div>
 
+        <!-- ETAPA 4 -->
         <div class="step" id="step-4">
             <h1>4. Liberar Laudo Completo</h1>
-            <p class="subtitle">Diagnóstico pronto. Preencha seus dados para desbloquear.</p>
+            <p class="subtitle">Diagnóstico pronto. Preencha seus dados obrigatórios para desbloquear.</p>
             <div class="teaser-card">
                 <div class="teaser-badge">⚡ DIAGNÓSTICO PRONTO</div>
                 <div style="font-size:13.5px; color:#E2E8F0;" id="teaser-resumo">✅ Encontramos pontos cegos e calculamos seu ponto de equilíbrio.</div>
@@ -1098,21 +1519,30 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
                     <div class="teaser-metric"><small>Potencial Oculto</small><strong>R$ 27.900</strong></div>
                 </div>
             </div>
-            <div class="field"><label>Seu Nome Completo <span class="badge-req">Obrigatório</span></label><input type="text" id="solicitante" name="solicitante" placeholder="Carlos Silva"></div>
+            <div class="field">
+                <label>Seu Nome Completo <span class="badge-req">Obrigatório</span></label>
+                <input type="text" id="solicitante" name="solicitante" placeholder="Ex: Carlos Silva">
+                <div class="err-msg" id="err_solicitante">⚠️ Preencha seu nome completo para liberar o laudo.</div>
+            </div>
             <div class="field">
                 <label>Seu Cargo na Empresa <span class="badge-req">Obrigatório</span></label>
                 <select id="cargo" name="cargo">
-                    <option value="">Selecione...</option>
+                    <option value="">Selecione seu cargo...</option>
                     <option value="Sócio / Proprietário / CEO">Sócio / Proprietário / CEO</option>
                     <option value="Diretor Comercial / Geral">Diretor Comercial / Geral</option>
                     <option value="Gerente Comercial / Financeiro">Gerente Comercial / Financeiro</option>
                     <option value="Administrador / Gestor">Administrador / Gestor</option>
                 </select>
+                <div class="err-msg" id="err_cargo">⚠️ Selecione seu cargo na empresa.</div>
             </div>
-            <div class="field"><label>WhatsApp com DDD <span class="badge-req">Obrigatório</span></label><input type="tel" id="whatsapp" name="whatsapp" placeholder="(81) 99999-9999" maxlength="15"></div>
+            <div class="field">
+                <label>WhatsApp com DDD <span class="badge-req">Obrigatório</span></label>
+                <input type="tel" id="whatsapp" name="whatsapp" placeholder="(81) 99999-9999" maxlength="15" inputmode="tel">
+                <div class="err-msg" id="err_whatsapp">⚠️ Informe um número de WhatsApp válido com DDD.</div>
+            </div>
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(3)">← Voltar</button>
-                <button type="submit" class="btn-primary" onclick="return validarFinal()">🔓 Liberar Laudo Agora</button>
+                <button type="submit" class="btn-primary">🔓 Liberar Laudo Agora</button>
             </div>
         </div>
     </form>
@@ -1121,7 +1551,68 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 
 <script>
     let ultimoCnpjBuscado = "";
-    let nomeAutoPreenchido = false;
+
+    function toggleCheckStyle(labelEl) {
+        setTimeout(() => {
+            const cb = labelEl.querySelector('input[type="checkbox"]');
+            if (cb && cb.checked) labelEl.classList.add('checked');
+            else labelEl.classList.remove('checked');
+        }, 10);
+    }
+
+    function atualizarDescRamo() {
+        const val = document.getElementById('ramo').value;
+        const box = document.getElementById('ramo-desc');
+        if (val.includes('Clínicas')) {
+            box.innerHTML = '🩺 <strong>Saúde & Clínicas:</strong> Foco em conversão de avaliações, ticket por procedimento e margem líquida.';
+        } else if (val.includes('Serviços B2B')) {
+            box.innerHTML = '💼 <strong>Serviços B2B & Agências:</strong> Foco em margem por hora/contrato, cadência comercial e taxa de fechamento.';
+        } else if (val.includes('Indústria')) {
+            box.innerHTML = '🏭 <strong>Indústria & Máquinas:</strong> Foco em margem industrial, ciclo longo de vendas e previsibilidade de pipeline.';
+        } else if (val.includes('Recorrência')) {
+            box.innerHTML = '🔄 <strong>Recorrência & Assinaturas:</strong> Foco em LTV, retenção de base e eficiência na aquisição de clientes.';
+        } else {
+            box.innerHTML = '🛒 <strong>Comércio e Varejo:</strong> Foco em giro de estoque, movimento diário e proteção de margem.';
+        }
+    }
+
+    function sugerirRamoPorCnae(cnaeTxt) {
+        if (!cnaeTxt) return;
+        const t = cnaeTxt.toLowerCase();
+        const sel = document.getElementById('ramo');
+        if (t.includes('odont') || t.includes('médic') || t.includes('saúde') || t.includes('clínica') || t.includes('estética') || t.includes('hospital')) {
+            sel.value = 'Clínicas / Saúde / Estética';
+        } else if (t.includes('software') || t.includes('tecnologia') || t.includes('informática') || t.includes('consultoria') || t.includes('publicidade') || t.includes('agência')) {
+            sel.value = 'Serviços B2B / Consultoria / Agência / TI';
+        } else if (t.includes('indústria') || t.includes('fabricação') || t.includes('máquina') || t.includes('metal') || t.includes('engenharia')) {
+            sel.value = 'Indústria / Fábrica / Máquinas';
+        } else if (t.includes('educação') || t.includes('ensino') || t.includes('telecom') || t.includes('assinatura')) {
+            sel.value = 'Recorrência / SaaS / Assinaturas';
+        }
+        atualizarDescRamo();
+    }
+
+    function marcarErro(idInput, idErr, mostrar) {
+        const el = document.getElementById(idInput);
+        const err = document.getElementById(idErr);
+        if (!el || !err) return;
+        if (mostrar) {
+            el.classList.add('input-erro');
+            err.classList.add('visible');
+        } else {
+            el.classList.remove('input-erro');
+            err.classList.remove('visible');
+        }
+    }
+
+    ['cnpj', 'empresa_nome', 'solicitante', 'cargo', 'whatsapp'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', () => marcarErro(id, 'err_' + id, false));
+            el.addEventListener('change', () => marcarErro(id, 'err_' + id, false));
+        }
+    });
+
     function validarCNPJ(c) {
         c = c.replace(/[^\d]+/g,'');
         if(c.length!==14 || /^(\d)\1+$/.test(c)) return false;
@@ -1134,6 +1625,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         r = s % 11 < 2 ? 0 : 11 - s % 11;
         return r == d.charAt(1);
     }
+
     async function consultarBrasilAPI(cnpj) {
         if (cnpj === ultimoCnpjBuscado) return;
         ultimoCnpjBuscado = cnpj;
@@ -1145,10 +1637,11 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             const d = await res.json();
             if(d.ok && d.nome) {
                 nom.value = d.nome;
-                nomeAutoPreenchido = true;
+                marcarErro('empresa_nome', 'err_empresa_nome', false);
                 document.getElementById('inp_cidade').value = d.municipio || '';
                 document.getElementById('inp_uf').value = d.uf || '';
                 document.getElementById('inp_cnae').value = d.cnae || '';
+                sugerirRamoPorCnae(d.cnae || '');
                 st.style.color = '#00A645';
                 st.innerText = `✅ Empresa encontrada: ${d.nome} (${d.municipio || ''}/${d.uf || ''})`;
             } else {
@@ -1160,6 +1653,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             st.innerText = '⚠️ Erro de conexão ao buscar CNPJ. Digite o nome manualmente.';
         }
     }
+
     const cInp = document.getElementById('cnpj');
     cInp.addEventListener('input', e => {
         let v = e.target.value.replace(/\D/g,'').slice(0,14);
@@ -1172,6 +1666,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             document.getElementById('cnpj_status').innerText = '';
         }
     });
+
     document.querySelectorAll('.mask-moeda').forEach(i => {
         i.addEventListener('input', e => {
             let v = e.target.value.replace(/\D/g,'');
@@ -1179,12 +1674,14 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             e.target.value = (parseInt(v,10)/100).toFixed(2).replace('.',',').replace(/(\d)(?=(\d{3})+(?!\d))/g,'$1.');
         });
     });
+
     document.getElementById('whatsapp').addEventListener('input', e => {
         let v = e.target.value.replace(/\D/g,'').slice(0,11);
         if(v.length>6) v=v.replace(/^(\d{2})(\d{5})(\d{0,4})/,'($1) $2-$3');
         else if(v.length>2) v=v.replace(/^(\d{2})(\d{0,5})/,'($1) $2');
         e.target.value = v;
     });
+
     function toggleCalcMargem() { document.getElementById('calc-margem-box').classList.toggle('open'); }
     function parseBRL(s) { return s ? parseFloat(s.replace(/\./g,'').replace(',','.').replace(/[^\d.-]/g,'')) || 0 : 0; }
     function aplicarCalculoMargem() {
@@ -1194,22 +1691,60 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         document.getElementById('margem').value = m.toFixed(1).replace('.',',');
         document.getElementById('calc-margem-box').classList.remove('open');
     }
+
     function irParaEtapa(n) {
         document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
         document.getElementById(`step-${n}`).classList.add('active');
-        const tit = {1: ["ETAPA 1 DE 4", "25%"], 2: ["ETAPA 2 DE 4", "50%"], 3: ["ETAPA 3 DE 4", "75%"], 4: ["ETAPA 4 DE 4", "100%"]};
+        const tit = {1: ["ETAPA 1 DE 4 — DADOS DA EMPRESA", "25%"], 2: ["ETAPA 2 DE 4 — RAIO-X FINANCEIRO", "50%"], 3: ["ETAPA 3 DE 4 — MOTOR COMERCIAL", "75%"], 4: ["ETAPA 4 DE 4 — LIBERAR LAUDO", "100%"]};
         document.getElementById('step-label').innerText = tit[n][0]; document.getElementById('step-pct').innerText = tit[n][1]; document.getElementById('progress-fill').style.width = tit[n][1];
         window.scrollTo({top:0, behavior:'smooth'});
     }
+
     function avancarEtapa1() {
         let d = cInp.value.replace(/\D/g,''), emp = document.getElementById('empresa_nome').value.trim();
-        if(d.length!==14 || !validarCNPJ(d) || !emp) { alert('Informe CNPJ válido e Nome da Empresa.'); return; }
-        fetch('/api/lead-parcial', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cnpj:d, empresa:emp, cidade:document.getElementById('inp_cidade').value, uf:document.getElementById('inp_uf').value, origem:document.getElementById('inp_origem').value})}).catch(()=>{});
+        let cnpjOk = (d.length === 14 && validarCNPJ(d));
+        let empOk = (emp.length > 0);
+        marcarErro('cnpj', 'err_cnpj', !cnpjOk);
+        marcarErro('empresa_nome', 'err_empresa_nome', !empOk);
+        if (!cnpjOk) { document.getElementById('cnpj').focus(); return; }
+        if (!empOk) { document.getElementById('empresa_nome').focus(); return; }
+        fetch('/api/lead-parcial', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cnpj:d, empresa:emp, cidade:document.getElementById('inp_cidade').value, uf:document.getElementById('inp_uf').value, cnae:document.getElementById('inp_cnae').value, ramo:document.getElementById('ramo').value, origem:document.getElementById('inp_origem').value})}).catch(()=>{});
         irParaEtapa(2);
     }
-    function prepararEtapa4() { irParaEtapa(4); }
-    function validarFinal() {
-        return document.getElementById('solicitante').value.trim() && document.getElementById('cargo').value && document.getElementById('whatsapp').value.replace(/\D/g,'').length >= 10;
+
+    function prepararEtapa4() {
+        const marcados = document.querySelectorAll('input[name="gargalos"]:checked').length;
+        const emp = document.getElementById('empresa_nome').value.trim() || 'sua empresa';
+        const resumo = document.getElementById('teaser-resumo');
+        if (marcados > 0) {
+            resumo.innerText = `✅ Cruzamos os dados da ${emp} com os ${marcados} gargalo(s) selecionado(s) e calculamos seu ponto de equilíbrio.`;
+        } else {
+            resumo.innerText = `✅ Cruzamos os dados da ${emp} com o benchmark do setor e calculamos seu ponto de equilíbrio.`;
+        }
+        irParaEtapa(4);
+    }
+
+    function validarFinal(e) {
+        const nomeEl = document.getElementById('solicitante');
+        const cargoEl = document.getElementById('cargo');
+        const wppEl = document.getElementById('whatsapp');
+
+        const nomeOk = nomeEl.value.trim().length >= 2;
+        const cargoOk = cargoEl.value.trim() !== "";
+        const wppOk = wppEl.value.replace(/\D/g, '').length >= 10;
+
+        marcarErro('solicitante', 'err_solicitante', !nomeOk);
+        marcarErro('cargo', 'err_cargo', !cargoOk);
+        marcarErro('whatsapp', 'err_whatsapp', !wppOk);
+
+        if (!nomeOk || !cargoOk || !wppOk) {
+            if (e) e.preventDefault();
+            if (!nomeOk) nomeEl.focus();
+            else if (!cargoOk) cargoEl.focus();
+            else wppEl.focus();
+            return false;
+        }
+        return true;
     }
 </script>
 </body>
@@ -1248,9 +1783,10 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         .section-card { background: #fff; border-radius: 18px; padding: 24px; border: 1px solid #E2E8F0; margin-bottom: 18px; }
         .section-title { font-size: 18px; font-weight: 800; color: #0F172A; margin-bottom: 14px; }
         .cega-item { border-left: 4px solid #EF4444; background: #FEF2F2; border-radius: 0 12px 12px 0; padding: 14px 16px; margin-bottom: 12px; }
-        .cega-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .cega-ok { border-left: 4px solid #00C853; background: #ECFDF5; border-radius: 0 12px 12px 0; padding: 14px 16px; font-size: 13.5px; color: #065F46; }
+        .cega-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }
         .cega-head strong { font-size: 14.5px; color: #0F172A; }
-        .sev-badge { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: #FEE2E2; color: #B91C1C; }
+        .sev-badge { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: #FEE2E2; color: #B91C1C; white-space: nowrap; }
         .cega-desc { font-size: 13.5px; color: #334155; line-height: 1.5; }
         .offer-card { background: linear-gradient(135deg, #064E3B 0%, #0F172A 100%); color: #fff; border-radius: 20px; padding: 26px 24px; margin-bottom: 18px; border: 2px solid #00C853; box-shadow: 0 14px 32px rgba(0, 200, 83, 0.16); }
         .scarcity-pill { display: inline-block; background: #FEF08A; color: #854D0E; font-weight: 800; font-size: 12px; padding: 5px 12px; border-radius: 99px; margin-bottom: 12px; }
@@ -1265,7 +1801,7 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         .btn-cta-main.danger { background: #EF4444; } .btn-cta-main.danger:hover { background: #DC2626; }
         .btn-cta-agenda { display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1.5px solid rgba(255,255,255,0.35); text-decoration: none; font-weight: 700; font-size: 14px; padding: 15px 16px; border-radius: 14px; }
         .btn-cta-agenda:hover { background: rgba(255,255,255,0.2); }
-        .plano-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+        .plano-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; }
         .plano-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; }
         .plano-box small { display: block; font-size: 11.5px; color: #64748B; font-weight: 700; margin-bottom: 4px; }
         .plano-box strong { font-size: 18px; color: #0F172A; font-weight: 800; }
@@ -1307,7 +1843,7 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         <div class="kpi-card">
             <small>Pontos Cegos Detectados</small>
             <div class="kpi-val {% if diag.qtd_cegas >= 2 %}red{% else %}green{% endif %}">{{ diag.qtd_cegas }} alerta(s)</div>
-            <div class="kpi-note">Vulnerabilidades financeiras identificadas.</div>
+            <div class="kpi-note">Vulnerabilidades financeiras e comerciais identificadas.</div>
         </div>
     </div>
 
@@ -1320,15 +1856,21 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
 
     <div class="section-card">
         <div class="section-title">🚨 Radar de Pontos Cegos & Riscos de Caixa</div>
-        {% for item in diag.pontos_cegos %}
-        <div class="cega-item">
-            <div class="cega-head">
-                <strong>{{ item.titulo }}</strong>
-                <span class="sev-badge">{{ item.severidade }}</span>
+        {% if diag.pontos_cegos %}
+            {% for item in diag.pontos_cegos %}
+            <div class="cega-item">
+                <div class="cega-head">
+                    <strong>{{ item.titulo }}</strong>
+                    <span class="sev-badge">{{ item.severidade }}</span>
+                </div>
+                <div class="cega-desc">{{ item.descricao }}</div>
             </div>
-            <div class="cega-desc">{{ item.descricao }}</div>
-        </div>
-        {% endfor %}
+            {% endfor %}
+        {% else %}
+            <div class="cega-ok">
+                ✅ Nenhum ponto cego crítico sinalizado. Foco total na captura do potencial oculto de <strong>{{ diag.potencial_oculto | moeda }}/mês</strong> e na execução das metas abaixo.
+            </div>
+        {% endif %}
     </div>
 
     <div class="offer-card">
@@ -1475,7 +2017,7 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
                 <div class="lead-title">{{ l.empresa }}</div>
                 <div class="lead-meta">CNPJ: {{ l.cnpj | cnpj_fmt }}<br>👤 {{ l.solicitante or 'Aguardando' }} • 📱 {{ l.whatsapp or '-' }}</div>
                 {% if l.completo %}
-                <div class="lead-nums">Fat: {{ l.faturamento | moeda }} | Potencial: <strong style="color:#00A645;">{{ l.potencial_oculto | moeda }}</strong></div>
+                <div class="lead-nums">Fat: {{ l.faturamento | moeda }} | Pontos Cegos: <strong>{{ l.qtd_cegas }}</strong> | Potencial: <strong style="color:#00A645;">{{ l.potencial_oculto | moeda }}</strong></div>
                 {% endif %}
             </div>
             <div>
@@ -1488,9 +2030,8 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
                     <span class="save-ok" id="ok-{{ l.cnpj }}">Salvo ✓</span>
                 </div>
                 <div class="card-actions">
-                    {% if l.whatsapp %}
-                        {% set wpp_num = l.whatsapp | replace('(', '') | replace(')', '') | replace('-', '') | replace(' ', '') %}
-                        <a href="https://wa.me/55{{ wpp_num }}?text=Olá!" target="_blank" class="btn-act btn-wpp">💬 Chamar</a>
+                    {% if l.link_wpp_abordagem %}
+                        <a href="{{ l.link_wpp_abordagem }}" target="_blank" class="btn-act btn-wpp">💬 Abordar</a>
                         <a href="/laudo/{{ l.cnpj }}" target="_blank" class="btn-act btn-laudo">📄 Laudo</a>
                     {% else %}
                         <a href="https://www.google.com/search?q={{ l.empresa | urlencode }}" target="_blank" class="btn-act btn-google">🔍 Google</a>
