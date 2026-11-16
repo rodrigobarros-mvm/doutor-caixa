@@ -1,8 +1,3 @@
-WHATSAPP_CONSULTOR = os.environ.get("WHATSAPP_CONSULTOR", "5581979091165").strip()
-AGENDA_URL = os.environ.get("AGENDA_URL", "https://cal.com").strip()
-PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "maqtrak2026").strip()
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ").strip()
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7635246193").strip()
 import os
 import json
 import sqlite3
@@ -18,11 +13,11 @@ app = Flask(__name__)
 # CONFIGURAÇÕES E VARIÁVEIS DE AMBIENTE (RENDER)
 # ==============================================================================
 DB_PATH = os.environ.get("DB_PATH", "doutor_caixa.db")
-WHATSAPP_CONSULTOR = os.environ.get("WHATSAPP_CONSULTOR", "5581999999999")  # Coloque seu número com 55 + DDD
-AGENDA_URL = os.environ.get("AGENDA_URL", "https://cal.com")  # Seu link do Cal.com ou Calendly
-PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "maqtrak2026")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+WHATSAPP_CONSULTOR = os.environ.get("WHATSAPP_CONSULTOR", "5581979091165").strip()
+AGENDA_URL = os.environ.get("AGENDA_URL", "https://cal.com").strip()
+PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "maqtrak2026").strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7635246193").strip()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
