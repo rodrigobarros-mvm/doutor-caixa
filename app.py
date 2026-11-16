@@ -22,16 +22,17 @@ SUPABASE_KEY_RAW = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6I
 SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
 SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
 
-# --- 2. CONFIGURAÇÃO DE ALERTA TELEGRAM ---
+# --- 2. CONFIGURAÇÃO DE ALERTA TELEGRAM E PAINEL ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7635246193").strip()
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "maqtrak2026").strip()
 
 # --- 3. DISPARO AUTOMÁTICO WHATSAPP (OPCIONAL - EVOLUTION API / Z-API) ---
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "").strip()
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "").strip()
 WHATSAPP_SUPORTE = "5581979091165"
 
-# --- 4. BANCO LOCAL SQLITE (GARANTIA DE PERSISTÊNCIA E FALLBACK INSTANTÂNEO) ---
+# --- 4. BANCO LOCAL SQLITE (FALLBACK INSTANTÂNEO) ---
 DB_LOCAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doutor_caixa.db")
 
 
@@ -67,6 +68,7 @@ def init_sqlite():
             cidade TEXT DEFAULT '',
             uf TEXT DEFAULT '',
             cnae TEXT DEFAULT '',
+            origem TEXT DEFAULT 'Direto',
             historico_json TEXT DEFAULT '[]',
             atualizado_em TEXT DEFAULT ''
         )
@@ -77,7 +79,8 @@ def init_sqlite():
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN receita_recorrente REAL DEFAULT 0",
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN cidade TEXT DEFAULT ''",
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN uf TEXT DEFAULT ''",
-        "ALTER TABLE clientes_doutor_caixa ADD COLUMN cnae TEXT DEFAULT ''"
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN cnae TEXT DEFAULT ''",
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN origem TEXT DEFAULT 'Direto'"
     ]:
         try:
             c.execute(col_sql)
@@ -200,11 +203,70 @@ def calcular_lead_score(dados):
         pontos += 8
 
     if pontos >= 75:
-        return "🔥 LEAD CURVA A — URGÊNCIA ALTA", pontos
+        return "🔥 LEAD CURVA A — URGÊNCIA ALTA", pontos, "A"
     elif pontos >= 50:
-        return "⚡ LEAD CURVA B — BOM POTENCIAL", pontos
+        return "⚡ LEAD CURVA B — BOM POTENCIAL", pontos, "B"
     else:
-        return "📌 LEAD CURVA C — NUTRIÇÃO", pontos
+        return "📌 LEAD CURVA C — NUTRIÇÃO", pontos, "C"
+
+
+def gerar_link_abordagem_wpp(dados):
+    wpp_limpo = "".join(filter(str.isdigit, str(dados.get("whatsapp", ""))))
+    if not wpp_limpo:
+        return ""
+    if not wpp_limpo.startswith("55"):
+        wpp_limpo = "55" + wpp_limpo
+
+    fat = float(dados.get("fat") or 0)
+    fixo = float(dados.get("fixo") or 0)
+    margem = float(dados.get("margem") or 30.0)
+    if margem <= 0:
+        margem = 30.0
+    meta = float(dados.get("meta_fat") or 0)
+    ponto_equilibrio = fixo / (margem / 100.0)
+
+    qtd_cegas = sum([
+        not bool(dados.get("tem_cac")),
+        not bool(dados.get("tem_ltv")),
+        not bool(dados.get("tem_conversao")),
+        not bool(dados.get("tem_ciclo"))
+    ])
+
+    primeiro_nome = str(dados.get("nome_pessoa", "")).strip().split(" ")[0] or "Olá"
+    empresa_nome = str(dados.get("nome", "sua empresa")).strip()
+    pe_fmt = format_brl(ponto_equilibrio)
+    meta_fmt = format_brl(meta)
+
+    linhas = [
+        f"Olá, *{primeiro_nome}*! Tudo bem?",
+        "Aqui é o Rodrigo, do *Doutor Caixa (MaqTrak)*."
+    ]
+
+    if fat < ponto_equilibrio:
+        linhas.extend([
+            f"Acabei de revisar o diagnóstico da *{empresa_nome}* e acendeu um alerta importante.",
+            f"Hoje vocês precisam faturar *R$ {pe_fmt}/mês* só para empatar as contas, mas o faturamento atual está abaixo disso.",
+            f"Além disso, identificamos *{qtd_cegas} ponto(s) cego(s)* que podem estar drenando sua margem no dia a dia.",
+            f"Já montei um *plano prático para estancar essa sangria* e estruturar o caminho até a meta de *R$ {meta_fmt}/mês*.",
+            "Você tem *10 minutos hoje* para eu te mostrar onde está o gargalo e como virar esse jogo?"
+        ])
+    elif qtd_cegas > 0:
+        linhas.extend([
+            f"Acabei de revisar o diagnóstico da *{empresa_nome}*.",
+            f"O ponto de equilíbrio de vocês está em *R$ {pe_fmt}/mês*, mas identificamos *{qtd_cegas} ponto(s) cego(s) na gestão* que hoje estão segurando o lucro.",
+            f"Já mapeei os *ajustes comerciais e financeiros* para destravar essa margem e acelerar rumo à meta de *R$ {meta_fmt}/mês*.",
+            "Você tem *10 minutos hoje* para eu te mostrar esses números na prática?"
+        ])
+    else:
+        linhas.extend([
+            f"Acabei de revisar o diagnóstico da *{empresa_nome}*.",
+            f"Vocês já têm um bom controle dos indicadores e o ponto de equilíbrio está em *R$ {pe_fmt}/mês*.",
+            f"Mesmo assim, enxerguei uma *oportunidade clara de ajuste comercial* para acelerar até a meta de *R$ {meta_fmt}/mês* protegendo o caixa.",
+            "Você tem *10 minutos hoje* para eu te mostrar esse plano na prática?"
+        ])
+
+    copy_wpp = "\n\n".join(linhas)
+    return f"https://wa.me/{wpp_limpo}?text={urllib.parse.quote(copy_wpp)}"
 
 
 def notificar_novo_lead_telegram(dados):
@@ -261,27 +323,21 @@ def notificar_novo_lead_telegram(dados):
         novas_vendas = 0
 
     txt_rec = f"R$ {format_brl(rec)}/mês" if rec > 0 else "R$ 0,00 (Venda pontual)"
-    classificacao_lead, score_pts = calcular_lead_score(dados)
+    classificacao_lead, score_pts, _ = calcular_lead_score(dados)
 
     cidade = str(dados.get("cidade", "")).strip()
     uf = str(dados.get("uf", "")).strip()
     cnae = str(dados.get("cnae", "")).strip()
+    origem = str(dados.get("origem", "Direto")).strip() or "Direto"
     local_str = f" ({cidade}/{uf})" if cidade and uf else ""
     cnae_str = f"\n🏭 <b>Atividade:</b> {html.escape(cnae[:75])}" if cnae else ""
 
-    primeiro_nome = str(dados.get("nome_pessoa", "")).strip().split(" ")[0] or "Olá"
     empresa_nome = str(dados.get("nome", "sua empresa")).strip()
-    copy_wpp = (
-        f"Olá, {primeiro_nome}! Tudo bem? Aqui é o Rodrigo, do Doutor Caixa (MaqTrak). "
-        f"Acabei de revisar o laudo da {empresa_nome}. Vi que o ponto de equilíbrio de vocês está em "
-        f"R$ {format_brl(ponto_equilibrio)}/mês e identificamos {len(cegas)} ponto(s) cego(s) na gestão "
-        f"que podem estar drenando margem. Você tem 10 minutos hoje para eu te mostrar como estancar isso "
-        f"e bater a meta de R$ {format_brl(meta)}?"
-    )
-    link_wpp_pronto = f"https://wa.me/55{wpp_limpo}?text={urllib.parse.quote(copy_wpp)}"
+    link_wpp_pronto = gerar_link_abordagem_wpp(dados)
 
     mensagem = (
-        f"<b>{classificacao_lead}</b> ({score_pts} pts)\n\n"
+        f"<b>{classificacao_lead}</b> ({score_pts} pts)\n"
+        f"📣 <b>Origem:</b> {html.escape(origem)}\n\n"
         f"👤 <b>Lead:</b> {html.escape(str(dados.get('nome_pessoa', '')))} ({html.escape(str(dados.get('cargo', '')))})\n"
         f"🏢 <b>Empresa:</b> {html.escape(empresa_nome)}{html.escape(local_str)} [{dados.get('modelo', '').upper()}]{cnae_str}\n"
         f"📱 <b>WhatsApp Direto:</b> https://wa.me/55{wpp_limpo}\n\n"
@@ -378,6 +434,7 @@ def normalizar_cliente(row):
         "cidade": row.get("cidade") or "",
         "uf": row.get("uf") or "",
         "cnae": row.get("cnae") or "",
+        "origem": row.get("origem") or "Direto",
         "historico": historico
     }
 
@@ -422,9 +479,57 @@ def buscar_cliente_db(cnpj_bruto):
             "taxa_conversao": 25.0,
             "tem_ciclo": False,
             "cidade": "Recife",
-            "uf": "PE"
+            "uf": "PE",
+            "origem": "Demonstração"
         })
     return None
+
+
+def listar_leads_db():
+    registros = {}
+    ok, dados = supabase_rest("GET", "clientes_doutor_caixa?select=*&limit=250")
+    if ok and isinstance(dados, list):
+        for r in dados:
+            c = normalizar_cliente(r)
+            if c["cnpj"]:
+                registros[c["cnpj"]] = c
+
+    try:
+        conn = sqlite3.connect(DB_LOCAL_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM clientes_doutor_caixa")
+        for row in cur.fetchall():
+            c = normalizar_cliente(dict(row))
+            if c["cnpj"] and c["cnpj"] not in registros:
+                registros[c["cnpj"]] = c
+        conn.close()
+    except Exception as e:
+        print(f"ERRO LISTAR SQLITE: {e}")
+
+    lista_enriquecida = []
+    for c in registros.values():
+        label_score, pts, curva = calcular_lead_score(c)
+        fator_m = c["margem"] / 100.0
+        pe = c["fixo"] / fator_m if fator_m > 0 else 0.0
+        lucro_atual = (c["fat"] * fator_m) - c["fixo"]
+        qtd_cegas = sum([
+            not c["tem_cac"],
+            not c["tem_ltv"],
+            not c["tem_conversao"],
+            not c["tem_ciclo"]
+        ])
+        c["score_label"] = label_score
+        c["score_pts"] = pts
+        c["curva"] = curva
+        c["pe"] = pe
+        c["lucro_atual"] = lucro_atual
+        c["qtd_cegas"] = qtd_cegas
+        c["link_wpp_pronto"] = gerar_link_abordagem_wpp(c)
+        lista_enriquecida.append(c)
+
+    lista_enriquecida.sort(key=lambda x: (x["score_pts"], x["fat"]), reverse=True)
+    return lista_enriquecida
 
 
 def salvar_cliente_db(registro):
@@ -456,8 +561,8 @@ def salvar_cliente_db(registro):
                 ticket_medio, vendas_30d, qtd_vendedores, receita_recorrente,
                 tem_cac, cac, tem_ltv, ltv, tem_conversao, taxa_conversao,
                 tem_ciclo, ciclo_financeiro, nome_pessoa, cargo, whatsapp,
-                cidade, uf, cnae, historico_json, atualizado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cidade, uf, cnae, origem, historico_json, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             cnpj_limpo, registro["nome"], 1, registro["caixa"], registro["fat"],
             registro["fixo"], registro["margem"], registro["modelo"], registro["meta_fat"],
@@ -467,7 +572,8 @@ def salvar_cliente_db(registro):
             registro["taxa_conversao"], int(registro["tem_ciclo"]),
             registro["ciclo_financeiro"], registro["nome_pessoa"], registro["cargo"],
             registro["whatsapp"], registro.get("cidade", ""), registro.get("uf", ""),
-            registro.get("cnae", ""), registro["historico_json"], registro["atualizado_em"]
+            registro.get("cnae", ""), registro.get("origem", "Direto"),
+            registro["historico_json"], registro["atualizado_em"]
         ))
         conn.commit()
         conn.close()
@@ -502,11 +608,12 @@ def salvar_cliente_db(registro):
         "cidade": registro.get("cidade", ""),
         "uf": registro.get("uf", ""),
         "cnae": registro.get("cnae", ""),
+        "origem": registro.get("origem", "Direto"),
         "historico_json": registro["historico_json"]
     }
     ok_sb, res_sb = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", payload_sb)
     if not ok_sb and "PGRST204" in str(res_sb):
-        for extra_col in ("cidade", "uf", "cnae"):
+        for extra_col in ("cidade", "uf", "cnae", "origem"):
             payload_sb.pop(extra_col, None)
         ok_sb, res_sb = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", payload_sb)
     if not ok_sb:
@@ -556,13 +663,13 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.7</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.8</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
         <p><b>4. Disparo WhatsApp API:</b> {'CONFIGURADO' if WHATSAPP_API_URL else 'Modo Manual (Acesso Direto Ativo)'}</p>
         <hr>
-        <p><a href="/">Voltar para a Home</a></p>
+        <p><a href="/">Voltar para a Home</a> | <a href="/painel">Abrir Painel Comercial</a></p>
     </div>
     """
 
@@ -628,6 +735,18 @@ TEMPLATE_HOME = r"""
             Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
         </div>
     </div>
+
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const src = params.get('utm_source') || params.get('ref');
+            const camp = params.get('utm_campaign');
+            if (src) {
+                const tag = camp ? `${src} (${camp})` : src;
+                sessionStorage.setItem('dc_origem', tag);
+            }
+        })();
+    </script>
 </body>
 </html>
 """
@@ -787,6 +906,7 @@ TEMPLATE_DIAGNOSTICO = r"""
             <input type="hidden" name="cidade" id="inp_cidade" value="">
             <input type="hidden" name="uf" id="inp_uf" value="">
             <input type="hidden" name="cnae" id="inp_cnae" value="">
+            <input type="hidden" name="origem" id="inp_origem" value="Direto">
             
             <!-- ETAPA 1: DADOS DA EMPRESA -->
             <div class="step-pane active" id="step_1">
@@ -1024,6 +1144,18 @@ TEMPLATE_DIAGNOSTICO = r"""
     </div>
 
     <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const src = params.get('utm_source') || params.get('ref');
+            const camp = params.get('utm_campaign');
+            let origemFinal = sessionStorage.getItem('dc_origem') || 'Direto';
+            if (src) {
+                origemFinal = camp ? `${src} (${camp})` : src;
+                sessionStorage.setItem('dc_origem', origemFinal);
+            }
+            document.getElementById('inp_origem').value = origemFinal;
+        })();
+
         const titulosEtapas = {
             1: "Etapa 1 de 4 — Dados da Empresa",
             2: "Etapa 2 de 4 — Financeiro & Vendas",
@@ -1276,6 +1408,145 @@ TEMPLATE_DIAGNOSTICO = r"""
 
         atualizarModeloNegocio();
     </script>
+</body>
+</html>
+"""
+
+TEMPLATE_PAINEL_LOGIN = r"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doutor Caixa | Acesso Comercial</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Poppins', sans-serif; background: #0F2E1C; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 16px; }
+        .box { background: #FFFFFF; padding: 36px 28px; border-radius: 14px; max-width: 380px; width: 100%; text-align: center; }
+        h2 { margin: 0 0 8px 0; color: #0F2E1C; font-size: 20px; }
+        p { margin: 0 0 18px 0; color: #6B7A70; font-size: 13px; }
+        input { width: 100%; padding: 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-size: 15px; text-align: center; margin-bottom: 12px; outline: none; }
+        input:focus { border-color: #00C853; }
+        button { width: 100%; padding: 14px; background: #00C853; color: #FFFFFF; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; cursor: pointer; }
+        .erro { background: #fdecea; color: #c0392b; padding: 8px; border-radius: 6px; font-size: 12.5px; margin-bottom: 12px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>🔒 Painel Comercial MaqTrak</h2>
+        <p>Digite a chave de acesso para visualizar os leads captados.</p>
+        {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+        <form method="POST" action="/painel">
+            <input type="password" name="chave" placeholder="Chave de acesso" required>
+            <button type="submit">Entrar no Painel</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+TEMPLATE_PAINEL = r"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doutor Caixa | Painel Comercial de Leads</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Poppins', sans-serif; background: #f2f7f4; margin: 0; padding: 20px 16px; color: #0F2E1C; }
+        .wrap { max-width: 1040px; margin: 0 auto; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; background: #0F2E1C; color: #FFFFFF; padding: 18px 24px; border-radius: 12px; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+        .topbar h1 { margin: 0; font-size: 19px; }
+        .topbar span { font-size: 12px; color: #a7d7b8; }
+        .topbar a { color: #00C853; text-decoration: none; font-weight: 700; font-size: 13px; }
+        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .kpi { background: #FFFFFF; padding: 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border-left: 4px solid #00C853; }
+        .kpi.hot { border-left-color: #e74c3c; }
+        .kpi span { display: block; font-size: 11.5px; color: #6B7A70; font-weight: 600; text-transform: uppercase; }
+        .kpi strong { display: block; font-size: 22px; color: #0F2E1C; margin-top: 4px; }
+        .lead-card { background: #FFFFFF; border-radius: 12px; padding: 18px 20px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); border-left: 6px solid #95a5a6; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .lead-card.curva-A { border-left-color: #e74c3c; }
+        .lead-card.curva-B { border-left-color: #f39c12; }
+        .lead-card.curva-C { border-left-color: #00C853; }
+        .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 4px; margin-right: 6px; }
+        .badge.A { background: #fdecea; color: #c0392b; }
+        .badge.B { background: #fef5e7; color: #d35400; }
+        .badge.C { background: #e8f7ee; color: #0F2E1C; }
+        .badge.origem { background: #ebf5fb; color: #1b4f72; }
+        .lead-title { font-size: 16px; font-weight: 700; margin: 6px 0 3px 0; }
+        .lead-meta { font-size: 12.5px; color: #6B7A70; line-height: 1.5; }
+        .lead-nums { font-size: 13px; color: #0F2E1C; margin-top: 6px; background: #f8fbf9; padding: 8px 12px; border-radius: 6px; }
+        .lead-actions { display: flex; flex-direction: column; gap: 7px; min-width: 195px; }
+        .btn-act { text-align: center; padding: 10px 14px; border-radius: 7px; text-decoration: none; font-size: 12.5px; font-weight: 700; }
+        .btn-wpp { background: #25D366; color: #FFFFFF; }
+        .btn-laudo { background: #0F2E1C; color: #FFFFFF; }
+        .btn-pdf { background: #E8F7EE; color: #0F2E1C; }
+        @media (max-width: 720px) {
+            .kpis { grid-template-columns: 1fr 1fr; }
+            .lead-actions { width: 100%; flex-direction: row; flex-wrap: wrap; }
+            .btn-act { flex: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="topbar">
+            <div>
+                <h1>🎯 Painel Comercial — Doutor Caixa (MaqTrak)</h1>
+                <span>Leads ordenados por urgência e potencial de fechamento</span>
+            </div>
+            <a href="/">← Ir para o Diagnóstico</a>
+        </div>
+
+        <div class="kpis">
+            <div class="kpi">
+                <span>Total de Leads</span>
+                <strong>{{ total_leads }}</strong>
+            </div>
+            <div class="kpi hot">
+                <span>Curva A (Urgência Alta)</span>
+                <strong>{{ total_curva_a }}</strong>
+            </div>
+            <div class="kpi">
+                <span>Curva B (Bom Potencial)</span>
+                <strong>{{ total_curva_b }}</strong>
+            </div>
+            <div class="kpi">
+                <span>Fat. Médio por Lead</span>
+                <strong>R$ {{ fat_medio_leads|format_brl }}</strong>
+            </div>
+        </div>
+
+        {% for l in leads %}
+        <div class="lead-card curva-{{ l.curva }}">
+            <div style="flex: 1; min-width: 260px;">
+                <div>
+                    <span class="badge {{ l.curva }}">{{ l.score_label }} ({{ l.score_pts }} pts)</span>
+                    <span class="badge origem">📣 {{ l.origem }}</span>
+                </div>
+                <div class="lead-title">{{ l.nome }}{% if l.cidade and l.uf %} ({{ l.cidade }}/{{ l.uf }}){% endif %}</div>
+                <div class="lead-meta">
+                    👤 <b>{{ l.nome_pessoa or 'Não informado' }}</b> ({{ l.cargo or 'Cargo não inf.' }}) &nbsp;|&nbsp; CNPJ: {{ l.cnpj|format_cnpj }} &nbsp;|&nbsp; Modelo: <b>{{ l.modelo|upper }}</b>
+                </div>
+                <div class="lead-nums">
+                    💰 Fat: <b>R$ {{ l.fat|format_brl }}</b> &nbsp;|&nbsp; Caixa: <b>R$ {{ l.caixa|format_brl }}</b> &nbsp;|&nbsp; PE: <b>R$ {{ l.pe|format_brl }}</b> &nbsp;|&nbsp; Meta: <b>R$ {{ l.meta_fat|format_brl }}</b> &nbsp;|&nbsp; 🚨 <b>{{ l.qtd_cegas }}/4 cegas</b>
+                </div>
+            </div>
+            <div class="lead-actions">
+                {% if l.link_wpp_pronto %}
+                <a href="{{ l.link_wpp_pronto }}" target="_blank" class="btn-act btn-wpp">💬 Chamar (Copy Pronta)</a>
+                {% endif %}
+                <a href="/laudo/{{ l.cnpj }}" target="_blank" class="btn-act btn-laudo">📊 Abrir Laudo</a>
+                <a href="/baixar_pdf/{{ l.cnpj }}" class="btn-act btn-pdf">📄 Baixar PDF</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </body>
 </html>
 """
@@ -1701,7 +1972,6 @@ def calcular_metricas_laudo(cliente):
     oportunidades_dia = math.ceil(oportunidades_mes / dias_uteis) if oportunidades_mes > 0 else 0
     vendas_dia_varejo = math.ceil(vendas_alvo_funil / dias_uteis) if vendas_alvo_funil > 0 else 0
 
-    # Esforço diário realista por modelo comercial
     if modelo in ('b2b', 'campo'):
         tentativas_dia_total = max(40, oportunidades_dia * 17) if oportunidades_dia > 0 else 40
         conexoes_dia_min = max(1, round(tentativas_dia_total * 0.20))
@@ -1732,14 +2002,12 @@ def calcular_metricas_laudo(cliente):
         esforco_por_vendedor = 0
         alerta_capacidade = False
 
-    # Cálculos explícitos de corte de despesa fixa (15%) e impacto no Ponto de Equilíbrio
     corte_15_rs = cliente['fixo'] * 0.15
     fixo_pos_corte = cliente['fixo'] - corte_15_rs
     pe_pos_corte = fixo_pos_corte / fator_margem
     vendas_pe_pos_corte = math.ceil(pe_pos_corte / tm) if tm > 0 else 0
     pct_deficit_fixo = (abs(lucro_atual) / cliente['fixo'] * 100) if (lucro_atual < 0 and cliente['fixo'] > 0) else 0.0
 
-    # Radar de Pontos Cegos vs Controlados
     radar = []
     qtd_cegas = 0
 
@@ -2027,6 +2295,7 @@ def diagnostico():
             "cidade": request.form.get('cidade', '').strip(),
             "uf": request.form.get('uf', '').strip(),
             "cnae": request.form.get('cnae', '').strip(),
+            "origem": request.form.get('origem', 'Direto').strip() or "Direto",
             "modelo": modelo,
             "caixa": parse_brl(request.form.get('caixa', '0')),
             "fat": fat,
@@ -2064,6 +2333,30 @@ def diagnostico():
     except Exception as e:
         print(traceback.format_exc())
         return render_template_string(TEMPLATE_HOME, erro=f"Erro interno no processamento: {str(e)}")
+
+
+@app.route('/painel', methods=['GET', 'POST'])
+def painel_comercial():
+    chave = request.args.get('chave', '').strip() or request.form.get('chave', '').strip()
+    if not chave:
+        return render_template_string(TEMPLATE_PAINEL_LOGIN, erro=None)
+    if chave != ADMIN_KEY:
+        return render_template_string(TEMPLATE_PAINEL_LOGIN, erro="Chave inválida.")
+
+    leads = listar_leads_db()
+    total_leads = len(leads)
+    total_curva_a = sum(1 for l in leads if l["curva"] == "A")
+    total_curva_b = sum(1 for l in leads if l["curva"] == "B")
+    fat_medio_leads = (sum(l["fat"] for l in leads) / total_leads) if total_leads > 0 else 0.0
+
+    return render_template_string(
+        TEMPLATE_PAINEL,
+        leads=leads,
+        total_leads=total_leads,
+        total_curva_a=total_curva_a,
+        total_curva_b=total_curva_b,
+        fat_medio_leads=fat_medio_leads
+    )
 
 
 @app.route('/acessar', methods=['GET', 'POST'])
