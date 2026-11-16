@@ -7,6 +7,7 @@ import html
 import socket
 import sqlite3
 import traceback
+import urllib.parse
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -15,19 +16,19 @@ from fpdf import FPDF
 app = Flask(__name__)
 
 # --- 1. CONFIGURAÇÃO DO SUPABASE (NUVEM) ---
-PROJECT_REF = "zkhjvkajtjhqlxkzxpx"
-SUPABASE_KEY_RAW = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4"
+PROJECT_REF = os.environ.get("SUPABASE_PROJECT_REF", "zkhjvkajtjhqlxkzxpx").strip()
+SUPABASE_KEY_RAW = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4")
 
 SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
 SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
 
 # --- 2. CONFIGURAÇÃO DE ALERTA TELEGRAM ---
-TELEGRAM_BOT_TOKEN = "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ".strip()
-TELEGRAM_CHAT_ID = "7635246193".strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7635246193").strip()
 
 # --- 3. DISPARO AUTOMÁTICO WHATSAPP (OPCIONAL - EVOLUTION API / Z-API) ---
-WHATSAPP_API_URL = "".strip()
-WHATSAPP_API_TOKEN = "".strip()
+WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "").strip()
+WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "").strip()
 WHATSAPP_SUPORTE = "5581979091165"
 
 # --- 4. BANCO LOCAL SQLITE (GARANTIA DE PERSISTÊNCIA E FALLBACK INSTANTÂNEO) ---
@@ -63,6 +64,9 @@ def init_sqlite():
             nome_pessoa TEXT DEFAULT '',
             cargo TEXT DEFAULT '',
             whatsapp TEXT DEFAULT '',
+            cidade TEXT DEFAULT '',
+            uf TEXT DEFAULT '',
+            cnae TEXT DEFAULT '',
             historico_json TEXT DEFAULT '[]',
             atualizado_em TEXT DEFAULT ''
         )
@@ -70,7 +74,10 @@ def init_sqlite():
     for col_sql in [
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN vendas_30d INTEGER DEFAULT -1",
         "ALTER TABLE clientes_doutor_caixa ADD COLUMN qtd_vendedores INTEGER DEFAULT 1",
-        "ALTER TABLE clientes_doutor_caixa ADD COLUMN receita_recorrente REAL DEFAULT 0"
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN receita_recorrente REAL DEFAULT 0",
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN cidade TEXT DEFAULT ''",
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN uf TEXT DEFAULT ''",
+        "ALTER TABLE clientes_doutor_caixa ADD COLUMN cnae TEXT DEFAULT ''"
     ]:
         try:
             c.execute(col_sql)
@@ -112,7 +119,7 @@ def supabase_rest(method, path, payload=None):
 
 def disparar_whatsapp_automatico(whatsapp_lead, nome_pessoa, empresa, cnpj_limpo):
     if not WHATSAPP_API_URL or not WHATSAPP_API_TOKEN:
-        return False, "API WhatsApp não configurada (modo manual ativo)"
+        return False, "API WhatsApp não configurada (modo acesso imediato ativo)"
 
     wpp_limpo = "".join(filter(str.isdigit, str(whatsapp_lead)))
     if not wpp_limpo.startswith("55"):
@@ -143,6 +150,61 @@ def disparar_whatsapp_automatico(whatsapp_lead, nome_pessoa, empresa, cnpj_limpo
     except Exception as e:
         print(f"AVISO DISPARO WHATSAPP: {e}")
         return False, str(e)
+
+
+def calcular_lead_score(dados):
+    pontos = 0
+    cargo = str(dados.get("cargo", "")).lower()
+    if "sócio" in cargo or "proprietário" in cargo or "diretor" in cargo:
+        pontos += 35
+    elif "gerente" in cargo:
+        pontos += 20
+    else:
+        pontos += 10
+
+    fat = float(dados.get("fat") or 0)
+    if fat >= 200000:
+        pontos += 30
+    elif fat >= 50000:
+        pontos += 20
+    elif fat > 0:
+        pontos += 10
+
+    fixo = float(dados.get("fixo") or 0)
+    margem = float(dados.get("margem") or 30.0)
+    if margem <= 0:
+        margem = 30.0
+    caixa = float(dados.get("caixa") or 0)
+
+    lucro_atual = (fat * (margem / 100.0)) - fixo
+    lucro_estresse = (fat * 0.70 * (margem / 100.0)) - fixo
+
+    if lucro_atual < 0:
+        pontos += 20
+    elif lucro_estresse < 0:
+        runway = caixa / abs(lucro_estresse)
+        if runway < 3:
+            pontos += 20
+        elif runway < 6:
+            pontos += 10
+
+    qtd_cegas = sum([
+        not bool(dados.get("tem_cac")),
+        not bool(dados.get("tem_ltv")),
+        not bool(dados.get("tem_conversao")),
+        not bool(dados.get("tem_ciclo"))
+    ])
+    if qtd_cegas >= 3:
+        pontos += 15
+    elif qtd_cegas >= 1:
+        pontos += 8
+
+    if pontos >= 75:
+        return "🔥 LEAD CURVA A — URGÊNCIA ALTA", pontos
+    elif pontos >= 50:
+        return "⚡ LEAD CURVA B — BOM POTENCIAL", pontos
+    else:
+        return "📌 LEAD CURVA C — NUTRIÇÃO", pontos
 
 
 def notificar_novo_lead_telegram(dados):
@@ -176,11 +238,17 @@ def notificar_novo_lead_telegram(dados):
     txt_controladas = ", ".join(controladas) if controladas else "Nenhuma (100% no escuro)"
     txt_cegas = ", ".join(cegas) if cegas else "Nenhuma (Operação monitorada)"
 
-    tm = dados.get("ticket_medio", 0)
-    fat = dados.get("fat", 0)
-    meta = dados.get("meta_fat", 0)
-    rec = float(dados.get("receita_recorrente", 0))
-    v30 = int(dados.get("vendas_30d", -1))
+    tm = float(dados.get("ticket_medio") or 0)
+    fat = float(dados.get("fat") or 0)
+    fixo = float(dados.get("fixo") or 0)
+    margem = float(dados.get("margem") or 30.0)
+    if margem <= 0:
+        margem = 30.0
+    meta = float(dados.get("meta_fat") or 0)
+    rec = float(dados.get("receita_recorrente") or 0)
+    v30 = int(dados.get("vendas_30d") if dados.get("vendas_30d") is not None else -1)
+
+    ponto_equilibrio = fixo / (margem / 100.0)
 
     if tm > 0:
         if rec > 0:
@@ -193,18 +261,38 @@ def notificar_novo_lead_telegram(dados):
         novas_vendas = 0
 
     txt_rec = f"R$ {format_brl(rec)}/mês" if rec > 0 else "R$ 0,00 (Venda pontual)"
+    classificacao_lead, score_pts = calcular_lead_score(dados)
+
+    cidade = str(dados.get("cidade", "")).strip()
+    uf = str(dados.get("uf", "")).strip()
+    cnae = str(dados.get("cnae", "")).strip()
+    local_str = f" ({cidade}/{uf})" if cidade and uf else ""
+    cnae_str = f"\n🏭 <b>Atividade:</b> {html.escape(cnae[:75])}" if cnae else ""
+
+    primeiro_nome = str(dados.get("nome_pessoa", "")).strip().split(" ")[0] or "Olá"
+    empresa_nome = str(dados.get("nome", "sua empresa")).strip()
+    copy_wpp = (
+        f"Olá, {primeiro_nome}! Tudo bem? Aqui é o Rodrigo, do Doutor Caixa (MaqTrak). "
+        f"Acabei de revisar o laudo da {empresa_nome}. Vi que o ponto de equilíbrio de vocês está em "
+        f"R$ {format_brl(ponto_equilibrio)}/mês e identificamos {len(cegas)} ponto(s) cego(s) na gestão "
+        f"que podem estar drenando margem. Você tem 10 minutos hoje para eu te mostrar como estancar isso "
+        f"e bater a meta de R$ {format_brl(meta)}?"
+    )
+    link_wpp_pronto = f"https://wa.me/55{wpp_limpo}?text={urllib.parse.quote(copy_wpp)}"
 
     mensagem = (
-        f"🚨 <b>NOVO LEAD DOUTOR CAIXA!</b>\n\n"
+        f"<b>{classificacao_lead}</b> ({score_pts} pts)\n\n"
         f"👤 <b>Lead:</b> {html.escape(str(dados.get('nome_pessoa', '')))} ({html.escape(str(dados.get('cargo', '')))})\n"
-        f"🏢 <b>Empresa:</b> {html.escape(str(dados.get('nome', '')))} [{dados.get('modelo', '').upper()}]\n"
-        f"📱 <b>WhatsApp:</b> https://wa.me/55{wpp_limpo}\n\n"
+        f"🏢 <b>Empresa:</b> {html.escape(empresa_nome)}{html.escape(local_str)} [{dados.get('modelo', '').upper()}]{cnae_str}\n"
+        f"📱 <b>WhatsApp Direto:</b> https://wa.me/55{wpp_limpo}\n\n"
         f"💰 <b>Fat. Médio:</b> R$ {format_brl(fat)} | <b>Caixa:</b> R$ {format_brl(dados.get('caixa', 0))}\n"
-        f"🔄 <b>Receita Recorrente/Retorno:</b> {txt_rec}\n"
+        f"⚖️ <b>Ponto Equilíbrio:</b> R$ {format_brl(ponto_equilibrio)}/mês\n"
+        f"🔄 <b>Receita Garantida:</b> {txt_rec}\n"
         f"🎯 <b>Meta:</b> R$ {format_brl(meta)} | <b>Ticket:</b> R$ {format_brl(tm)} | <b>Gap:</b> +{novas_vendas} vendas/mês\n\n"
         f"🟢 <b>Sabe/Controla:</b> {html.escape(txt_controladas)}\n"
         f"🔴 <b>Pontos Cegos:</b> {html.escape(txt_cegas)}\n\n"
-        f"🔗 <b>Laudo Pronto:</b>\n"
+        f"💬 <a href=\"{link_wpp_pronto}\">CLIQUE AQUI PARA CHAMAR COM COPY PRONTA</a>\n\n"
+        f"🔗 <b>Laudo do Cliente:</b>\n"
         f"https://doutor-caixa.onrender.com/laudo/{dados.get('cnpj')}"
     )
 
@@ -287,6 +375,9 @@ def normalizar_cliente(row):
         "nome_pessoa": row.get("nome_pessoa") or "",
         "cargo": row.get("cargo") or "",
         "whatsapp": row.get("whatsapp") or "",
+        "cidade": row.get("cidade") or "",
+        "uf": row.get("uf") or "",
+        "cnae": row.get("cnae") or "",
         "historico": historico
     }
 
@@ -329,7 +420,9 @@ def buscar_cliente_db(cnpj_bruto):
             "tem_ltv": False,
             "tem_conversao": True,
             "taxa_conversao": 25.0,
-            "tem_ciclo": False
+            "tem_ciclo": False,
+            "cidade": "Recife",
+            "uf": "PE"
         })
     return None
 
@@ -363,8 +456,8 @@ def salvar_cliente_db(registro):
                 ticket_medio, vendas_30d, qtd_vendedores, receita_recorrente,
                 tem_cac, cac, tem_ltv, ltv, tem_conversao, taxa_conversao,
                 tem_ciclo, ciclo_financeiro, nome_pessoa, cargo, whatsapp,
-                historico_json, atualizado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cidade, uf, cnae, historico_json, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             cnpj_limpo, registro["nome"], 1, registro["caixa"], registro["fat"],
             registro["fixo"], registro["margem"], registro["modelo"], registro["meta_fat"],
@@ -373,7 +466,8 @@ def salvar_cliente_db(registro):
             int(registro["tem_ltv"]), registro["ltv"], int(registro["tem_conversao"]),
             registro["taxa_conversao"], int(registro["tem_ciclo"]),
             registro["ciclo_financeiro"], registro["nome_pessoa"], registro["cargo"],
-            registro["whatsapp"], registro["historico_json"], registro["atualizado_em"]
+            registro["whatsapp"], registro.get("cidade", ""), registro.get("uf", ""),
+            registro.get("cnae", ""), registro["historico_json"], registro["atualizado_em"]
         ))
         conn.commit()
         conn.close()
@@ -405,9 +499,16 @@ def salvar_cliente_db(registro):
         "nome_pessoa": registro["nome_pessoa"],
         "cargo": registro["cargo"],
         "whatsapp": registro["whatsapp"],
+        "cidade": registro.get("cidade", ""),
+        "uf": registro.get("uf", ""),
+        "cnae": registro.get("cnae", ""),
         "historico_json": registro["historico_json"]
     }
     ok_sb, res_sb = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", payload_sb)
+    if not ok_sb and "PGRST204" in str(res_sb):
+        for extra_col in ("cidade", "uf", "cnae"):
+            payload_sb.pop(extra_col, None)
+        ok_sb, res_sb = supabase_rest("POST", "clientes_doutor_caixa?on_conflict=cnpj", payload_sb)
     if not ok_sb:
         print(f"AVISO SYNC SUPABASE: {res_sb}")
 
@@ -455,11 +556,11 @@ def teste_conexao():
 
     return f"""
     <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.6</h2>
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.7</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
-        <p><b>4. Disparo WhatsApp API:</b> {'CONFIGURADO' if WHATSAPP_API_URL else 'Modo Manual (Link Direto Ativo)'}</p>
+        <p><b>4. Disparo WhatsApp API:</b> {'CONFIGURADO' if WHATSAPP_API_URL else 'Modo Manual (Acesso Direto Ativo)'}</p>
         <hr>
         <p><a href="/">Voltar para a Home</a></p>
     </div>
@@ -546,11 +647,15 @@ TEMPLATE_SUCESSO = r"""
         body { font-family: 'Poppins', sans-serif; background: #E8F7EE; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 16px; color: #0F2E1C; }
         .box { background: #FFFFFF; padding: 40px 30px; border-radius: 16px; box-shadow: 0 8px 28px rgba(15, 46, 28, 0.08); text-align: center; max-width: 440px; width: 100%; }
         .box h1 { color: #00C853; margin: 0 0 10px 0; font-size: 24px; }
-        .box p { color: #6B7A70; font-size: 15px; line-height: 1.5; margin-bottom: 24px; }
-        .alert-box { background: #f0fdf4; border: 2px solid #00C853; padding: 18px; border-radius: 10px; margin-bottom: 24px; }
-        .alert-box strong { color: #0F2E1C; display: block; font-size: 16px; margin-bottom: 6px; }
-        .alert-box span { color: #145c32; font-size: 14px; }
-        .btn { display: block; background: #0F2E1C; color: #FFFFFF; padding: 16px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px; }
+        .box p { color: #6B7A70; font-size: 14.5px; line-height: 1.5; margin-bottom: 20px; }
+        .alert-box { background: #f0fdf4; border: 2px solid #00C853; padding: 16px; border-radius: 10px; margin-bottom: 20px; }
+        .alert-box strong { color: #0F2E1C; display: block; font-size: 15px; margin-bottom: 4px; }
+        .alert-box span { color: #145c32; font-size: 13px; line-height: 1.45; display: block; }
+        .btn-laudo-agora { display: block; background: #00C853; color: #FFFFFF; padding: 17px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0, 200, 83, 0.28); transition: background 0.2s; }
+        .btn-laudo-agora:hover { background: #00a645; }
+        .btn { display: block; background: #0F2E1C; color: #FFFFFF; padding: 14px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; }
+        .footer-brand { margin-top: 20px; padding-top: 14px; border-top: 1px solid #eef4f0; font-size: 10.5px; color: #7c8b82; }
+        .footer-brand strong { color: #0F2E1C; }
     </style>
 </head>
 <body>
@@ -559,11 +664,16 @@ TEMPLATE_SUCESSO = r"""
         <p>Analisamos todos os números da sua empresa e preparamos o seu plano de ação completo.</p>
         
         <div class="alert-box">
-            <strong>Fique atento ao seu WhatsApp!</strong>
-            <span>O link exclusivo para abrir seu Laudo Financeiro na tela e baixar o PDF será enviado em instantes para:<br><br><b>{{ whatsapp }}</b></span>
+            <strong>Cópia vinculada ao WhatsApp {{ whatsapp }}</strong>
+            <span>Seu diagnóstico já está liberado abaixo e você também poderá consultar a qualquer momento usando seu CNPJ.</span>
         </div>
 
+        <a href="/laudo/{{ cnpj }}" class="btn-laudo-agora">📄 Abrir Meu Laudo Agora</a>
         <a href="/" class="btn">Voltar para a Tela Inicial</a>
+
+        <div class="footer-brand">
+            Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
+        </div>
     </div>
 </body>
 </html>
@@ -588,7 +698,6 @@ TEMPLATE_DIAGNOSTICO = r"""
         .back-link { color: #6B7A70; text-decoration: none; font-size: 13px; font-weight: 600; }
         .back-link:hover { color: #0F2E1C; }
 
-        /* Barra de Progresso do Wizard */
         .wizard-progress { margin-bottom: 22px; }
         .progress-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: #0F2E1C; margin-bottom: 6px; }
         .progress-meta span.step-tag { color: #00C853; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -608,6 +717,7 @@ TEMPLATE_DIAGNOSTICO = r"""
         .field-group { margin-bottom: 16px; }
         label { display: block; font-size: 13px; font-weight: 700; color: #0F2E1C; margin-bottom: 4px; }
         .hint { display: block; font-size: 11.5px; color: #6B7A70; margin-bottom: 6px; line-height: 1.35; }
+        .cnpj-feedback { display: block; font-size: 11.5px; color: #00a645; font-weight: 600; margin-top: 5px; min-height: 16px; }
         input[type="text"], input[type="tel"], input[type="number"], select { width: 100%; padding: 13px 14px; border: 2px solid #E8F7EE; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14.5px; color: #0F2E1C; outline: none; background: #FFFFFF; transition: 0.2s; }
         input:focus, select:focus { border-color: #00C853; }
         .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -674,20 +784,24 @@ TEMPLATE_DIAGNOSTICO = r"""
         </div>
 
         <form method="POST" action="/diagnostico" id="form_diagnostico" onsubmit="return validarEtapa4()">
+            <input type="hidden" name="cidade" id="inp_cidade" value="">
+            <input type="hidden" name="uf" id="inp_uf" value="">
+            <input type="hidden" name="cnae" id="inp_cnae" value="">
             
             <!-- ETAPA 1: DADOS DA EMPRESA -->
             <div class="step-pane active" id="step_1">
                 <h2>1. Dados da Empresa</h2>
-                <p class="desc">Conte-nos qual é o seu negócio para calibrarmos o diagnóstico ao seu setor.</p>
-
-                <div class="field-group">
-                    <label>Nome da Empresa</label>
-                    <input type="text" name="nome" id="empresa_nome" placeholder="Ex: Distribuidora Recife Ltda">
-                </div>
+                <p class="desc">Digite o CNPJ para localizarmos sua empresa automaticamente e calibrarmos o diagnóstico ao seu setor.</p>
 
                 <div class="field-group">
                     <label>CNPJ Válido (Somente números)</label>
                     <input type="text" name="cnpj" id="cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+                    <span class="cnpj-feedback" id="cnpj_status"></span>
+                </div>
+
+                <div class="field-group">
+                    <label>Nome da Empresa</label>
+                    <input type="text" name="nome" id="empresa_nome" placeholder="Ex: Distribuidora Recife Ltda">
                 </div>
 
                 <div class="field-group">
@@ -870,7 +984,7 @@ TEMPLATE_DIAGNOSTICO = r"""
             <!-- ETAPA 4: DADOS DO SOLICITANTE -->
             <div class="step-pane" id="step_4">
                 <h2>4. Dados do Solicitante</h2>
-                <p class="desc">Tudo pronto! Informe seus dados para enviarmos o link exclusivo do seu laudo completo.</p>
+                <p class="desc">Tudo pronto! Informe seus dados para liberar imediatamente o seu laudo completo.</p>
 
                 <div class="row-2">
                     <div class="field-group">
@@ -891,7 +1005,7 @@ TEMPLATE_DIAGNOSTICO = r"""
 
                 <div class="wpp-box">
                     <label>Seu WhatsApp com DDD</label>
-                    <span class="hint-alert">⚠️ Importante: O link para visualizar seu laudo e baixar o PDF será enviado EXCLUSIVAMENTE para este número.</span>
+                    <span class="hint-alert">⚠️ Importante: Informe seu WhatsApp ativo para vincular e liberar o acesso ao seu Laudo e PDF.</span>
                     <input type="tel" name="whatsapp" id="whatsapp" placeholder="(81) 99999-9999">
                 </div>
 
@@ -916,6 +1030,9 @@ TEMPLATE_DIAGNOSTICO = r"""
             3: "Etapa 3 de 4 — Radar de Indicadores",
             4: "Etapa 4 de 4 — Envio do Laudo"
         };
+
+        let ultimoCnpjBuscado = "";
+        let nomeAutoPreenchido = false;
 
         function parseMoedaJS(val) {
             if (!val) return 0;
@@ -952,18 +1069,62 @@ TEMPLATE_DIAGNOSTICO = r"""
             return true;
         }
 
+        async function consultarBrasilAPI(cnpjLimpo) {
+            if (cnpjLimpo === ultimoCnpjBuscado) return;
+            ultimoCnpjBuscado = cnpjLimpo;
+
+            const statusEl = document.getElementById('cnpj_status');
+            const nomeEl = document.getElementById('empresa_nome');
+            statusEl.style.color = '#6B7A70';
+            statusEl.innerText = '⏳ Localizando dados da empresa...';
+
+            try {
+                const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`);
+                if (!resp.ok) {
+                    statusEl.innerText = '';
+                    return;
+                }
+                const data = await resp.json();
+                const nomeOficial = (data.nome_fantasia && data.nome_fantasia.trim()) ? data.nome_fantasia.trim() : (data.razao_social || '').trim();
+                const municipio = (data.municipio || '').trim();
+                const uf = (data.uf || '').trim();
+                const cnae = (data.cnae_fiscal_descricao || '').trim();
+
+                if (nomeOficial && (!nomeEl.value.trim() || nomeAutoPreenchido)) {
+                    nomeEl.value = nomeOficial;
+                    nomeAutoPreenchido = true;
+                }
+                document.getElementById('inp_cidade').value = municipio;
+                document.getElementById('inp_uf').value = uf;
+                document.getElementById('inp_cnae').value = cnae;
+
+                if (municipio && uf) {
+                    statusEl.style.color = '#00a645';
+                    statusEl.innerText = `✅ Empresa localizada em ${municipio}/${uf}`;
+                } else {
+                    statusEl.innerText = '';
+                }
+            } catch (e) {
+                statusEl.innerText = '';
+            }
+        }
+
+        document.getElementById('empresa_nome').addEventListener('input', function() {
+            nomeAutoPreenchido = false;
+        });
+
         function validarEtapaAtual(etapaAtual) {
             if (etapaAtual === 1) {
-                let emp = document.getElementById('empresa_nome');
-                if (!emp.value.trim()) {
-                    alert("Por favor, informe o nome da empresa.");
-                    emp.focus();
-                    return false;
-                }
                 let cnpjInput = document.getElementById('cnpj');
                 if (!validarCNPJ(cnpjInput.value)) {
                     alert("O CNPJ informado é inválido. Por favor, confira os números.");
                     cnpjInput.focus();
+                    return false;
+                }
+                let emp = document.getElementById('empresa_nome');
+                if (!emp.value.trim()) {
+                    alert("Por favor, informe o nome da empresa.");
+                    emp.focus();
                     return false;
                 }
             }
@@ -1082,12 +1243,19 @@ TEMPLATE_DIAGNOSTICO = r"""
         }
 
         document.getElementById('cnpj').addEventListener('input', function (e) {
-            let v = e.target.value.replace(/\D/g, '').slice(0, 14);
+            let digits = e.target.value.replace(/\D/g, '').slice(0, 14);
+            let v = digits;
             v = v.replace(/^(\d{2})(\d)/, '$1.$2');
             v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
             v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
             v = v.replace(/(\d{4})(\d)/, '$1-$2');
             e.target.value = v;
+
+            if (digits.length === 14 && validarCNPJ(digits)) {
+                consultarBrasilAPI(digits);
+            } else if (digits.length < 14) {
+                document.getElementById('cnpj_status').innerText = '';
+            }
         });
 
         document.getElementById('whatsapp').addEventListener('input', function (e) {
@@ -1219,7 +1387,7 @@ TEMPLATE_DASHBOARD = r"""
         </div>
         
         <div class="paciente-box">
-            <p>Empresa Analisada: <strong>{{ cliente.nome }}</strong></p>
+            <p>Empresa Analisada: <strong>{{ cliente.nome }}</strong>{% if cliente.cidade and cliente.uf %} <span style="font-size: 13px; color: #6B7A70;">({{ cliente.cidade }}/{{ cliente.uf }})</span>{% endif %}</p>
             <small>CNPJ: {{ cnpj|format_cnpj }} | Ramo: <strong>{{ nome_motor_comercial }}</strong>{% if cliente.ticket_medio > 0 %} | Valor Médio por Venda: <strong>R$ {{ cliente.ticket_medio|format_brl }}</strong>{% endif %}{% if cliente.modelo != 'produtos' %} | Equipe Comercial: <strong>{{ qtd_vendedores }}</strong>{% endif %}</small>
         </div>
 
@@ -1316,7 +1484,7 @@ TEMPLATE_DASHBOARD = r"""
 
                 {% if cliente.modelo in ['b2b', 'campo'] %}
                     <br>• <b>Orçamentos e Reuniões ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} contrato(s)</b> com taxa de fechamento de <b>{{ "%.0f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), você precisa fazer <b>{{ oportunidades_mes }} reuniões ou orçamentos/mês</b> (<b>~{{ oportunidades_dia }} por dia</b>).
-                    <br>• <b>Rotina Diária de Prospecção:</b> Para conseguir <b>{{ oportunidades_dia }} reunião(ões)/orçamento(s) por dia</b>, a equipe precisa fazer <b>{{ tentativas_dia_total }} ligações/abordagens ativas por dia</b> ({{ esforco_por_vendedor }}/dia por pessoa) $\rightarrow$ gerando <b>{{ conexoes_dia_min }} a {{ conexoes_dia_max }} conversas reais por dia</b> (20% a 30% atendem) $\rightarrow$ transformando parte delas em proposta.
+                    <br>• <b>Rotina Diária de Prospecção:</b> Para conseguir <b>{{ oportunidades_dia }} reunião(ões)/orçamento(s) por dia</b>, a equipe precisa fazer <b>{{ tentativas_dia_total }} ligações/abordagens ativas por dia</b> ({{ esforco_por_vendedor }}/dia por pessoa) &rarr; gerando <b>{{ conexoes_dia_min }} a {{ conexoes_dia_max }} conversas reais por dia</b> (20% a 30% atendem) &rarr; transformando parte delas em proposta.
                 {% elif cliente.modelo == 'servicos' %}
                     <br>• <b>Avaliações e Orçamentos ({{ dias_uteis }} dias úteis):</b> Para fechar <b>{{ vendas_alvo_funil }} novos atendimentos/mês</b> com fechamento de <b>{{ "%.0f"|format(taxa_conv_usada) }}%</b> ({{ origem_taxa }}), você precisa gerar <b>{{ oportunidades_mes }} avaliações/orçamentos/mês</b> (<b>~{{ oportunidades_dia }} por dia</b>).
                     <br>• <b>3 Fontes Diárias de Pacientes/Clientes:</b>
@@ -1710,7 +1878,6 @@ def calcular_metricas_laudo(cliente):
 def gerar_textos_prescricao(cliente, m):
     modelo = cliente.get('modelo', 'produtos')
 
-    # Item 1: Corte de Despesa Fixa em linguagem direta
     if m['lucro_atual'] < 0:
         item1_tit = "1. CORTE URGENTE DE DESPESAS FIXAS: "
         item1_desc = (
@@ -1728,7 +1895,6 @@ def gerar_textos_prescricao(cliente, m):
         item1_tit = "1. CRESCIMENTO COM CAIXA SEGURO: "
         item1_desc = "Use a folga de lucro atual para investir apenas nos canais de divulgação que já trazem clientes pagantes, sem mexer na reserva de caixa."
 
-    # Item 2: Rotina Comercial 100% Adaptada ao Ramo
     if modelo == 'b2b':
         item2_tit = "2. ROTINA DIÁRIA DE PROSPECÇÃO E CONTRATOS: "
         item2_desc = (
@@ -1762,7 +1928,6 @@ def gerar_textos_prescricao(cliente, m):
             f"(c) negocie prazos maiores e descontos à vista com fornecedores para sobrar mais dinheiro em cada produto vendido."
         )
 
-    # Item 3: Alvo Prioritário
     if m['lucro'] < 0:
         item3_tit = "3. META NÚMERO 1 (SAIR DO VERMELHO): "
         pe_v = f" ({m['vendas_pe']} vendas/mês)" if m['vendas_pe'] > 0 else ""
@@ -1859,6 +2024,9 @@ def diagnostico():
             "cargo": request.form.get('cargo', '').strip(),
             "whatsapp": "".join(filter(str.isdigit, request.form.get('whatsapp', ''))),
             "nome": request.form.get('nome', 'Empresa Consultada').strip(),
+            "cidade": request.form.get('cidade', '').strip(),
+            "uf": request.form.get('uf', '').strip(),
+            "cnae": request.form.get('cnae', '').strip(),
             "modelo": modelo,
             "caixa": parse_brl(request.form.get('caixa', '0')),
             "fat": fat,
@@ -1888,7 +2056,11 @@ def diagnostico():
             cnpj_limpo
         )
 
-        return render_template_string(TEMPLATE_SUCESSO, whatsapp=request.form.get('whatsapp', ''))
+        return render_template_string(
+            TEMPLATE_SUCESSO,
+            whatsapp=request.form.get('whatsapp', ''),
+            cnpj=cnpj_limpo
+        )
     except Exception as e:
         print(traceback.format_exc())
         return render_template_string(TEMPLATE_HOME, erro=f"Erro interno no processamento: {str(e)}")
@@ -1946,7 +2118,7 @@ def baixar_pdf(cnpj):
             self.cell(0, 4.2, pdf_safe('Doutor Caixa é uma empresa da MaqTrak - Hub de Soluções em Inteligência de Mercado.'), align='C')
 
     pdf = PDF()
-    pdf.set_auto_page_break(auto=True, margin=19)
+    pdf.set_auto_page_break(auto=True, margin=17)
     pdf.add_page()
 
     def desenhar_card(y_topo, altura, cor_fundo, cor_barra):
@@ -1961,7 +2133,8 @@ def baixar_pdf(cnpj):
     pdf.set_xy(19, y + 3)
     pdf.set_font('helvetica', 'B', 10)
     pdf.set_text_color(15, 46, 28)
-    pdf.cell(175, 5.2, pdf_safe(f"EMPRESA: {cliente['nome']}  |  CNPJ: {format_cnpj(cnpj)}  |  {m['nome_motor_comercial']}"), ln=1)
+    loc_pdf = f" ({cliente['cidade']}/{cliente['uf']})" if cliente.get('cidade') and cliente.get('uf') else ""
+    pdf.cell(175, 5.2, pdf_safe(f"EMPRESA: {cliente['nome']}{loc_pdf}  |  CNPJ: {format_cnpj(cnpj)}  |  {m['nome_motor_comercial']}"), ln=1)
     pdf.set_x(19)
     pdf.set_font('helvetica', '', 8.4)
     pdf.set_text_color(80, 95, 86)
@@ -2194,7 +2367,6 @@ def baixar_pdf(cnpj):
     pdf.set_text_color(235, 242, 238)
     pdf.multi_cell(128, 4.3, pdf_safe("Aponte a câmera do seu celular para o QR Code ao lado e fale agora com nossa equipe para destravar seu plano de ação:"))
 
-    # Número do WhatsApp destacado em outro ponto do bloco
     y_num = y_cta + 31.5
     pdf.set_fill_color(24, 68, 42)
     pdf.rect(19, y_num, 88, 9.5, 'F')
@@ -2203,7 +2375,6 @@ def baixar_pdf(cnpj):
     pdf.set_text_color(255, 255, 255)
     pdf.cell(82, 5, pdf_safe("WhatsApp: (81) 9.7909.1165"), link=link_wpp)
 
-    # QR Code à direita
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(154, y_cta + 3.5, 36, 36, 'F')
     try:
