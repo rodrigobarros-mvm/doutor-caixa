@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, send_file, redirect, url_for
+from flask import Flask, render_template_string, request, send_file, redirect, url_for, make_response
 import io
 import os
 import math
@@ -16,10 +16,12 @@ from fpdf import FPDF
 app = Flask(__name__)
 
 # --- 1. CONFIGURAÇÃO DO SUPABASE (NUVEM) ---
+SUPABASE_URL_ENV = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
 PROJECT_REF = os.environ.get("SUPABASE_PROJECT_REF", "zkhjvkajtjhqlxkzxpx").strip()
 SUPABASE_KEY_RAW = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpraGp2a2FqdGp0aHFseGt6eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0OTk0MjAsImV4cCI6MjExMDA3NTQyMH0.i3K8SXNNPHamqLobcdK-yJ1YyGgS7-qqRpfjLnJPqE4")
 
-SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
+SUPABASE_URL = SUPABASE_URL_ENV if SUPABASE_URL_ENV else f"https://{PROJECT_REF}.supabase.co"
+SUPABASE_HOST = urllib.parse.urlparse(SUPABASE_URL).hostname or f"{PROJECT_REF}.supabase.co"
 SUPABASE_KEY = "".join(c for c in SUPABASE_KEY_RAW if 32 < ord(c) < 127).strip()
 
 # --- 2. CONFIGURAÇÃO DE ALERTA TELEGRAM E PAINEL ---
@@ -93,6 +95,26 @@ def init_sqlite():
 init_sqlite()
 
 
+def extrair_origem(req):
+    src = (req.args.get("utm_source") or req.args.get("ref") or "").strip()
+    med = (req.args.get("utm_medium") or "").strip()
+    camp = (req.args.get("utm_campaign") or "").strip()
+    if src:
+        detalhes = [x for x in (med, camp) if x]
+        return f"{src} ({' / '.join(detalhes)})" if detalhes else src
+
+    if req.method == "POST":
+        form_origem = (req.form.get("origem") or "").strip()
+        if form_origem and form_origem != "Direto":
+            return form_origem
+
+    cookie_origem = urllib.parse.unquote(req.cookies.get("dc_origem", "")).strip()
+    if cookie_origem and cookie_origem != "Direto":
+        return cookie_origem
+
+    return "Direto"
+
+
 def supabase_rest(method, path, payload=None):
     if "COLE_AQUI" in SUPABASE_KEY or not SUPABASE_KEY:
         return False, "Chave SUPABASE_KEY não configurada"
@@ -117,7 +139,7 @@ def supabase_rest(method, path, payload=None):
         err_body = e.read().decode("utf-8")
         return False, f"HTTP {e.code}: {err_body}"
     except Exception as e:
-        return False, str(e)
+        return False, repr(e)
 
 
 def disparar_whatsapp_automatico(whatsapp_lead, nome_pessoa, empresa, cnpj_limpo):
@@ -649,21 +671,21 @@ def favicon():
 @app.route('/teste-conexao')
 def teste_conexao():
     try:
-        ip_sb = socket.gethostbyname(f"{PROJECT_REF}.supabase.co")
-        dns_status = f"OK ({ip_sb})"
+        ip_sb = socket.gethostbyname(SUPABASE_HOST)
+        dns_status = f"OK ({SUPABASE_HOST} -> {ip_sb})"
     except Exception as e:
-        dns_status = f"Falha DNS externa ({e})"
+        dns_status = f"Falha DNS externa em {SUPABASE_HOST} ({repr(e)})"
 
     ok_sb, res_sb = supabase_rest("GET", "clientes_doutor_caixa?select=cnpj&limit=5")
-    status_sb = f"CONECTADO ({len(res_sb)} registros)" if ok_sb else f"Fallback SQLite Ativo ({res_sb})"
+    status_sb = f"CONECTADO ({len(res_sb)} registros)" if ok_sb else f"Fallback SQLite Ativo ({html.escape(str(res_sb))})"
 
     conn = sqlite3.connect(DB_LOCAL_PATH)
     qtd_local = conn.execute("SELECT COUNT(*) FROM clientes_doutor_caixa").fetchone()[0]
     conn.close()
 
     return f"""
-    <div style="font-family: sans-serif; padding: 30px; max-width: 680px; margin: auto;">
-        <h2>Diagnóstico Técnico - Doutor Caixa v5.8</h2>
+    <div style="font-family: sans-serif; padding: 30px; max-width: 720px; margin: auto;">
+        <h2>Diagnóstico Técnico - Doutor Caixa v5.9</h2>
         <p><b>1. Banco Local (SQLite):</b> ATIVO ({qtd_local} registros salvos)</p>
         <p><b>2. DNS Supabase:</b> {dns_status}</p>
         <p><b>3. Sincronização Supabase:</b> {status_sb}</p>
@@ -716,8 +738,8 @@ TEMPLATE_HOME = r"""
         <h1>Raio-X do Seu Caixa e das Suas Vendas</h1>
         <p class="subtitle">Descubra em 2 minutos quanto tempo sua empresa aguenta se as vendas caírem 30% e receba um plano prático para vender mais e proteger seu lucro.</p>
         
-        <a href="/diagnostico" class="btn-primary">🚀 Fazer Meu Diagnóstico Gratuito</a>
-        <a href="https://wa.me/5581979091165?text=Olá!%20Vim%20pelo%20Doutor%20Caixa%20e%20gostaria%20de%20conversar%20sobre%20o%20caixa%20e%20as%20vendas%20da%20minha%20empresa." target="_blank" class="btn-wpp-home">💬 Falar no WhatsApp</a>
+        <a href="{{ diagnostico_url }}" id="btn_diagnostico" class="btn-primary">🚀 Fazer Meu Diagnóstico Gratuito</a>
+        <a href="{{ wpp_home_url }}" target="_blank" class="btn-wpp-home">💬 Falar no WhatsApp</a>
 
         <div class="divider">Já possui laudo?</div>
 
@@ -740,10 +762,17 @@ TEMPLATE_HOME = r"""
         (function() {
             const params = new URLSearchParams(window.location.search);
             const src = params.get('utm_source') || params.get('ref');
+            const med = params.get('utm_medium');
             const camp = params.get('utm_campaign');
             if (src) {
-                const tag = camp ? `${src} (${camp})` : src;
-                sessionStorage.setItem('dc_origem', tag);
+                const detalhes = [med, camp].filter(Boolean).join(' / ');
+                const tag = detalhes ? `${src} (${detalhes})` : src;
+                try { localStorage.setItem('dc_origem', tag); } catch (e) {}
+                document.cookie = `dc_origem=${encodeURIComponent(tag)}; path=/; max-age=604800; SameSite=Lax`;
+                const btn = document.getElementById('btn_diagnostico');
+                if (btn && btn.href.indexOf('utm_source=') === -1 && btn.href.indexOf('ref=') === -1) {
+                    btn.href = '/diagnostico' + window.location.search;
+                }
             }
         })();
     </script>
@@ -906,7 +935,7 @@ TEMPLATE_DIAGNOSTICO = r"""
             <input type="hidden" name="cidade" id="inp_cidade" value="">
             <input type="hidden" name="uf" id="inp_uf" value="">
             <input type="hidden" name="cnae" id="inp_cnae" value="">
-            <input type="hidden" name="origem" id="inp_origem" value="Direto">
+            <input type="hidden" name="origem" id="inp_origem" value="{{ origem }}">
             
             <!-- ETAPA 1: DADOS DA EMPRESA -->
             <div class="step-pane active" id="step_1">
@@ -1147,13 +1176,23 @@ TEMPLATE_DIAGNOSTICO = r"""
         (function() {
             const params = new URLSearchParams(window.location.search);
             const src = params.get('utm_source') || params.get('ref');
+            const med = params.get('utm_medium');
             const camp = params.get('utm_campaign');
-            let origemFinal = sessionStorage.getItem('dc_origem') || 'Direto';
+            const inp = document.getElementById('inp_origem');
+            let origemFinal = (inp && inp.value && inp.value !== 'Direto') ? inp.value : '';
+
             if (src) {
-                origemFinal = camp ? `${src} (${camp})` : src;
-                sessionStorage.setItem('dc_origem', origemFinal);
+                const detalhes = [med, camp].filter(Boolean).join(' / ');
+                origemFinal = detalhes ? `${src} (${detalhes})` : src;
+            } else if (!origemFinal) {
+                try { origemFinal = localStorage.getItem('dc_origem') || ''; } catch (e) {}
             }
-            document.getElementById('inp_origem').value = origemFinal;
+
+            if (origemFinal && origemFinal !== 'Direto') {
+                inp.value = origemFinal;
+                try { localStorage.setItem('dc_origem', origemFinal); } catch (e) {}
+                document.cookie = `dc_origem=${encodeURIComponent(origemFinal)}; path=/; max-age=604800; SameSite=Lax`;
+            }
         })();
 
         const titulosEtapas = {
@@ -1464,11 +1503,15 @@ TEMPLATE_PAINEL = r"""
         .topbar h1 { margin: 0; font-size: 19px; }
         .topbar span { font-size: 12px; color: #a7d7b8; }
         .topbar a { color: #00C853; text-decoration: none; font-weight: 700; font-size: 13px; }
-        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
         .kpi { background: #FFFFFF; padding: 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border-left: 4px solid #00C853; }
         .kpi.hot { border-left-color: #e74c3c; }
         .kpi span { display: block; font-size: 11.5px; color: #6B7A70; font-weight: 600; text-transform: uppercase; }
         .kpi strong { display: block; font-size: 22px; color: #0F2E1C; margin-top: 4px; }
+        .filtros-canal { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
+        .filtros-canal span.lbl { font-size: 12px; font-weight: 700; color: #6B7A70; margin-right: 4px; }
+        .pill { display: inline-block; padding: 6px 12px; border-radius: 99px; font-size: 12px; font-weight: 600; text-decoration: none; background: #FFFFFF; color: #0F2E1C; border: 1.5px solid #d5e5dc; transition: 0.15s; }
+        .pill.active, .pill:hover { background: #0F2E1C; color: #FFFFFF; border-color: #0F2E1C; }
         .lead-card { background: #FFFFFF; border-radius: 12px; padding: 18px 20px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); border-left: 6px solid #95a5a6; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
         .lead-card.curva-A { border-left-color: #e74c3c; }
         .lead-card.curva-B { border-left-color: #f39c12; }
@@ -1521,6 +1564,16 @@ TEMPLATE_PAINEL = r"""
                 <strong>R$ {{ fat_medio_leads|format_brl }}</strong>
             </div>
         </div>
+
+        {% if origens_contagem %}
+        <div class="filtros-canal">
+            <span class="lbl">📣 Canal:</span>
+            <a href="/painel?chave={{ chave }}" class="pill {% if not origem_filtro %}active{% endif %}">Todos ({{ total_geral }})</a>
+            {% for orig, qtd in origens_contagem.items() %}
+            <a href="/painel?chave={{ chave }}&origem={{ orig|urlencode }}" class="pill {% if origem_filtro == orig %}active{% endif %}">{{ orig }} ({{ qtd }})</a>
+            {% endfor %}
+        </div>
+        {% endif %}
 
         {% for l in leads %}
         <div class="lead-card curva-{{ l.curva }}">
@@ -2223,7 +2276,7 @@ def gerar_textos_prescricao(cliente, m):
 def renderizar_laudo(cnpj_limpo):
     cliente = buscar_cliente_db(cnpj_limpo)
     if not cliente:
-        return render_template_string(TEMPLATE_HOME, erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
+        return render_home_com_utm(erro="CNPJ não encontrado. Por favor, gere um novo diagnóstico.")
 
     if not cliente['ativo']:
         return render_template_string(TEMPLATE_BLOQUEIO)
@@ -2241,20 +2294,49 @@ def renderizar_laudo(cnpj_limpo):
     )
 
 
+def render_home_com_utm(erro=None):
+    origem = extrair_origem(request)
+    qs = request.query_string.decode("utf-8").strip()
+    if qs:
+        diagnostico_url = f"/diagnostico?{qs}"
+    elif origem != "Direto":
+        diagnostico_url = f"/diagnostico?utm_source={urllib.parse.quote(origem)}"
+    else:
+        diagnostico_url = "/diagnostico"
+
+    tag_wpp = f" [Canal: {origem}]" if origem != "Direto" else ""
+    msg_wpp = f"Olá! Vim pelo Doutor Caixa{tag_wpp} e gostaria de conversar sobre o caixa e as vendas da minha empresa."
+    wpp_home_url = f"https://wa.me/{WHATSAPP_SUPORTE}?text={urllib.parse.quote(msg_wpp)}"
+
+    resp = make_response(render_template_string(
+        TEMPLATE_HOME,
+        erro=erro,
+        diagnostico_url=diagnostico_url,
+        wpp_home_url=wpp_home_url
+    ))
+    if origem != "Direto":
+        resp.set_cookie("dc_origem", urllib.parse.quote(origem), max_age=7 * 24 * 3600, samesite="Lax")
+    return resp
+
+
 @app.route('/')
 def home():
-    return render_template_string(TEMPLATE_HOME, erro=None)
+    return render_home_com_utm(erro=None)
 
 
 @app.route('/diagnostico', methods=['GET', 'POST'])
 def diagnostico():
     if request.method == 'GET':
-        return render_template_string(TEMPLATE_DIAGNOSTICO)
+        origem = extrair_origem(request)
+        resp = make_response(render_template_string(TEMPLATE_DIAGNOSTICO, origem=origem))
+        if origem != "Direto":
+            resp.set_cookie("dc_origem", urllib.parse.quote(origem), max_age=7 * 24 * 3600, samesite="Lax")
+        return resp
 
     try:
         cnpj_limpo = "".join(filter(str.isdigit, request.form.get('cnpj', '')))
         if not cnpj_limpo:
-            return render_template_string(TEMPLATE_HOME, erro="Por favor, informe um CNPJ válido.")
+            return render_home_com_utm(erro="Por favor, informe um CNPJ válido.")
 
         fat = parse_brl(request.form.get('fat', '0'))
         margem = float(str(request.form.get('margem', '30')).replace(',', '.'))
@@ -2286,6 +2368,8 @@ def diagnostico():
         tem_conversao = 'tem_conversao' in request.form
         tem_ciclo = 'tem_ciclo' in request.form
 
+        origem_lead = extrair_origem(request)
+
         registro = {
             "cnpj": cnpj_limpo,
             "nome_pessoa": request.form.get('nome_pessoa', '').strip(),
@@ -2295,7 +2379,7 @@ def diagnostico():
             "cidade": request.form.get('cidade', '').strip(),
             "uf": request.form.get('uf', '').strip(),
             "cnae": request.form.get('cnae', '').strip(),
-            "origem": request.form.get('origem', 'Direto').strip() or "Direto",
+            "origem": origem_lead,
             "modelo": modelo,
             "caixa": parse_brl(request.form.get('caixa', '0')),
             "fat": fat,
@@ -2332,7 +2416,7 @@ def diagnostico():
         )
     except Exception as e:
         print(traceback.format_exc())
-        return render_template_string(TEMPLATE_HOME, erro=f"Erro interno no processamento: {str(e)}")
+        return render_home_com_utm(erro=f"Erro interno no processamento: {str(e)}")
 
 
 @app.route('/painel', methods=['GET', 'POST'])
@@ -2343,7 +2427,20 @@ def painel_comercial():
     if chave != ADMIN_KEY:
         return render_template_string(TEMPLATE_PAINEL_LOGIN, erro="Chave inválida.")
 
-    leads = listar_leads_db()
+    todos_leads = listar_leads_db()
+    total_geral = len(todos_leads)
+
+    origens_contagem = {}
+    for l in todos_leads:
+        orig = l.get("origem") or "Direto"
+        origens_contagem[orig] = origens_contagem.get(orig, 0) + 1
+
+    origem_filtro = request.args.get('origem', '').strip()
+    if origem_filtro:
+        leads = [l for l in todos_leads if (l.get("origem") or "Direto") == origem_filtro]
+    else:
+        leads = todos_leads
+
     total_leads = len(leads)
     total_curva_a = sum(1 for l in leads if l["curva"] == "A")
     total_curva_b = sum(1 for l in leads if l["curva"] == "B")
@@ -2351,11 +2448,15 @@ def painel_comercial():
 
     return render_template_string(
         TEMPLATE_PAINEL,
+        chave=chave,
         leads=leads,
+        total_geral=total_geral,
         total_leads=total_leads,
         total_curva_a=total_curva_a,
         total_curva_b=total_curva_b,
-        fat_medio_leads=fat_medio_leads
+        fat_medio_leads=fat_medio_leads,
+        origens_contagem=origens_contagem,
+        origem_filtro=origem_filtro
     )
 
 
