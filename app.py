@@ -6,6 +6,7 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string, request, redirect, url_for, make_response, jsonify
+from fpdf import FPDF
 
 app = Flask(__name__)
 
@@ -14,7 +15,6 @@ app = Flask(__name__)
 # ==============================================================================
 DB_PATH = os.environ.get("DB_PATH", "doutor_caixa.db")
 WHATSAPP_CONSULTOR = os.environ.get("WHATSAPP_CONSULTOR", "5581979091165").strip()
-AGENDA_URL = os.environ.get("AGENDA_URL", "https://cal.com").strip()
 PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "maqtrak2026").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9209744162:AAE-Yg8v1EBtifwf1LnF6gQSLf8kDbtkhuQ").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7635246193").strip()
@@ -29,7 +29,7 @@ def agora_br():
 
 
 # ==============================================================================
-# BANCO DE DADOS (SQLITE + MIGRAÇÃO AUTOMÁTICA + SYNC OPCIONAL SUPABASE)
+# BANCO DE DADOS (SQLITE + MIGRAÇÃO AUTOMÁTICA)
 # ==============================================================================
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -75,44 +75,6 @@ def init_db():
             atualizado_em TEXT
         )
     """)
-
-    # Migração segura caso a tabela já exista de versões anteriores
-    colunas_novas = [
-        ("cidade", "TEXT"),
-        ("uf", "TEXT"),
-        ("cnae", "TEXT"),
-        ("ramo", "TEXT"),
-        ("solicitante", "TEXT"),
-        ("cargo", "TEXT"),
-        ("whatsapp", "TEXT"),
-        ("faturamento", "REAL"),
-        ("margem", "REAL"),
-        ("custos_fixos", "REAL"),
-        ("ticket_medio", "REAL"),
-        ("leads_mes", "REAL"),
-        ("taxa_conv", "REAL"),
-        ("vendedores", "REAL"),
-        ("meta_fat", "REAL"),
-        ("ponto_equilibrio", "REAL"),
-        ("lucro_atual", "REAL"),
-        ("potencial_oculto", "REAL"),
-        ("qtd_cegas", "INTEGER DEFAULT 0"),
-        ("pontos_cegos_json", "TEXT"),
-        ("diagnostico_json", "TEXT"),
-        ("status_crm", "TEXT DEFAULT 'Novo'"),
-        ("completo", "INTEGER DEFAULT 0"),
-        ("clicou_cta", "INTEGER DEFAULT 0"),
-        ("data_cta", "TEXT"),
-        ("origem", "TEXT"),
-        ("criado_em", "TEXT"),
-        ("atualizado_em", "TEXT"),
-    ]
-    for col, tipo in colunas_novas:
-        try:
-            cur.execute(f"ALTER TABLE leads ADD COLUMN {col} {tipo}")
-        except sqlite3.OperationalError:
-            pass
-
     conn.commit()
     conn.close()
 
@@ -121,7 +83,6 @@ init_db()
 
 
 def sync_supabase_async(payload: dict):
-    """Sincroniza o lead no Supabase em segundo plano se as chaves estiverem configuradas."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
 
@@ -148,7 +109,6 @@ def sync_supabase_async(payload: dict):
 
 
 def enviar_telegram_async(mensagem: str):
-    """Envia alerta instantâneo no Telegram sem travar a navegação do usuário."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
@@ -183,7 +143,6 @@ def formatar_cnpj(cnpj: str) -> str:
 
 
 def parse_float_opcional(valor):
-    """Converte string monetária/percentual BR para float ou retorna None se vazio."""
     if valor is None:
         return None
     s = str(valor).strip()
@@ -228,7 +187,6 @@ def obter_benchmark_setorial(cnae: str, ramo: str) -> dict:
             "segmento": "Saúde, Clínicas & Estética",
             "margem_bench": 52.0,
             "conv_bench": 28.0,
-            "rotina_bench": "30 contatos ativos/dia e confirmação D-1 de agenda",
             "alerta": "Clínicas de alta performance protegem margem acima de 52% e convertem quase 1 a cada 3 avaliações agendadas."
         }
     if any(k in texto for k in ["software", "saas", "tecnologia", "ti", "informática", "agência", "marketing", "consultoria", "serviço", "b2b"]):
@@ -236,7 +194,6 @@ def obter_benchmark_setorial(cnae: str, ramo: str) -> dict:
             "segmento": "Serviços B2B, Agências & Tecnologia",
             "margem_bench": 58.0,
             "conv_bench": 22.0,
-            "rotina_bench": "20 visitas/reuniões por semana e 30 prospecções/dia",
             "alerta": "Operações B2B líderes operam com margem de contribuição acima de 58% e taxa de fechamento de 22% sobre propostas enviadas."
         }
     if any(k in texto for k in ["indústria", "fabric", "metal", "máquina", "equipamento", "engenharia", "construção"]):
@@ -244,7 +201,6 @@ def obter_benchmark_setorial(cnae: str, ramo: str) -> dict:
             "segmento": "Indústria, Máquinas & Bens de Capital",
             "margem_bench": 34.0,
             "conv_bench": 18.0,
-            "rotina_bench": "20 visitas técnicas semanais e follow-up estruturado de cotações",
             "alerta": "Empresas industriais e de bens de capital referência mantêm margem acima de 34% e conversão de 18% no pipeline técnico."
         }
     if any(k in texto for k in ["recorrência", "assinatura", "educação", "escola", "academia", "telecom", "segurança"]):
@@ -252,24 +208,17 @@ def obter_benchmark_setorial(cnae: str, ramo: str) -> dict:
             "segmento": "Receita Recorrente & Assinaturas",
             "margem_bench": 62.0,
             "conv_bench": 25.0,
-            "rotina_bench": "30 contatos/dia com foco em LTV e retenção mensal",
             "alerta": "Negócios recorrentes saudáveis operam com margem acima de 62% e retenção superior a 95% ao mês."
         }
-    # Padrão: Comércio / Varejo / Distribuição
     return {
         "segmento": "Comércio, Varejo & Distribuição",
         "margem_bench": 32.0,
         "conv_bench": 24.0,
-        "rotina_bench": "30 abordagens/dia na carteira ativa e giro semanal de estoque",
         "alerta": "Distribuidoras e varejistas de alta performance operam com margem de contribuição acima de 32% e conversão de 24% no atendimento."
     }
 
 
 def processar_diagnostico(dados: dict) -> dict:
-    """
-    Calcula ponto de equilíbrio, lucro estimado, dinheiro deixado na mesa e pontos cegos.
-    Trata campos vazios como indicadores não monitorados (pontos cegos de gestão).
-    """
     fat = dados.get("faturamento")
     margem = dados.get("margem")
     fixos = dados.get("custos_fixos")
@@ -282,7 +231,6 @@ def processar_diagnostico(dados: dict) -> dict:
     bench = obter_benchmark_setorial(dados.get("cnae", ""), dados.get("ramo", ""))
     pontos_cegos = []
 
-    # 1. Auditoria de Visibilidade dos Dados (O que o empresário NÃO soube informar)
     if fat is None:
         pontos_cegos.append({
             "titulo": "Faturamento Mensal Não Informado",
@@ -293,7 +241,7 @@ def processar_diagnostico(dados: dict) -> dict:
         pontos_cegos.append({
             "titulo": "Margem de Contribuição Desconhecida (Gestão no Escuro)",
             "severidade": "CRÍTICO",
-            "descricao": f"Você não soube informar sua margem líquida. Usamos {bench['margem_bench']:.0f}% (média do setor) como referência, mas vender sem saber a margem real é a causa nº 1 de empresas que faturam alto e quebram sem caixa."
+            "descricao": f"Você não soube informar sua margem. Usamos {bench['margem_bench']:.0f}% (média do setor) como referência, mas vender sem saber a margem real é a causa nº 1 de empresas que faturam alto e quebram sem caixa."
         })
     if fixos is None:
         pontos_cegos.append({
@@ -314,11 +262,9 @@ def processar_diagnostico(dados: dict) -> dict:
             "descricao": "Sem acompanhar o ticket médio, a equipe comercial tende a dar descontos excessivos para fechar pedidos."
         })
 
-    # Valores efetivos para projeção matemática (usando benchmark conservador quando omitido)
     margem_calc = margem if (margem is not None and margem > 0) else bench["margem_bench"]
     margem_dec = margem_calc / 100.0
 
-    # 2. Ponto de Equilíbrio e Lucro Operacional
     ponto_equilibrio = None
     lucro_atual = None
     folga_caixa_pct = None
@@ -332,61 +278,30 @@ def processar_diagnostico(dados: dict) -> dict:
         if ponto_equilibrio and ponto_equilibrio > 0:
             folga_caixa_pct = ((fat - ponto_equilibrio) / ponto_equilibrio) * 100.0
 
-    # Alertas matemáticos se os números foram informados
     if lucro_atual is not None and lucro_atual < 0:
         pontos_cegos.insert(0, {
             "titulo": f"Hemorragia de Caixa: Déficit Estimado de {fmt_moeda(abs(lucro_atual))}/mês",
             "severidade": "CRÍTICO",
             "descricao": f"Com a margem atual de {margem_calc:.1f}%, o faturamento não cobre os custos fixos de {fmt_moeda(fixos)}. A operação está queimando caixa todos os meses."
         })
-    elif folga_caixa_pct is not None and folga_caixa_pct < 12:
-        pontos_cegos.append({
-            "titulo": f"Margem de Segurança Estreita ({folga_caixa_pct:.1f}% acima do empate)",
-            "severidade": "ALTO",
-            "descricao": "Qualquer queda leve nas vendas ou atraso de recebimento joga o caixa imediatamente para o vermelho."
-        })
 
-    if margem is not None and margem < (bench["margem_bench"] - 5):
-        pontos_cegos.append({
-            "titulo": f"Margem Abaixo do Setor ({margem:.1f}% vs {bench['margem_bench']:.0f}% benchmark)",
-            "severidade": "ALTO",
-            "descricao": "Sua margem está comprimida frente aos concorrentes de alta performance — sinal de precificação defasada, descontos sem critério ou custo variável alto."
-        })
-
-    if taxa_conv is not None and taxa_conv < (bench["conv_bench"] - 4):
-        pontos_cegos.append({
-            "titulo": f"Conversão Comercial Baixa ({taxa_conv:.1f}% vs {bench['conv_bench']:.0f}% benchmark)",
-            "severidade": "ALTO",
-            "descricao": "Você está pagando para gerar oportunidades e perdendo vendas no acompanhamento (follow-up) ou abordagem."
-        })
-
-    # 3. Cálculo de Dinheiro Deixado na Mesa (Potencial Oculto Mensal)
     potencial_oculto = 0.0
     if fat is not None and fat > 0 and margem is not None and margem < bench["margem_bench"]:
         potencial_oculto += fat * ((bench["margem_bench"] - margem) / 100.0)
 
     if leads_mes is not None and leads_mes > 0 and taxa_conv is not None and taxa_conv < bench["conv_bench"]:
-        tk_ref = ticket if (ticket is not None and ticket > 0) else (
-            (fat / max(leads_mes * (taxa_conv / 100.0), 1)) if (fat and taxa_conv > 0) else 1500.0
-        )
+        tk_ref = ticket if (ticket is not None and ticket > 0) else 1500.0
         vendas_extras = leads_mes * ((bench["conv_bench"] - taxa_conv) / 100.0)
         potencial_oculto += vendas_extras * tk_ref
 
-    # Se não deu para calcular gap direto por falta de dados, estima 18% de ganho de eficiência sobre o faturamento (ou R$ 15.000 base)
     if potencial_oculto <= 0:
-        if fat is not None and fat > 0:
-            potencial_oculto = fat * 0.18
-        else:
-            potencial_oculto = 15000.0
+        potencial_oculto = (fat * 0.18) if (fat is not None and fat > 0) else 15000.0
 
-    # 4. Meta Sugerida e Plano Diário da Equipe
     if meta_fat is None or meta_fat <= 0:
         if ponto_equilibrio and fat:
             meta_fat = max(fat * 1.25, ponto_equilibrio * 1.20)
         elif fat:
             meta_fat = fat * 1.25
-        elif ponto_equilibrio:
-            meta_fat = ponto_equilibrio * 1.20
         else:
             meta_fat = 100000.0
 
@@ -399,31 +314,24 @@ def processar_diagnostico(dados: dict) -> dict:
     contatos_dia_por_vendedor = max(30, int(round((oportunidades_mes * 3) / (22 * eq_vendedores))))
     visitas_semana_por_vendedor = max(20, int(round((oportunidades_mes / 4.3) / eq_vendedores)))
 
-    # 5. Definição do CTA Dinâmico (Gatilho de Conversão)
     qtd_cegas = len(pontos_cegos)
     empresa_nome = dados.get("empresa") or "minha empresa"
 
     if lucro_atual is not None and lucro_atual < 0:
         cta_texto = f"🚨 Estancar Prejuízo de {fmt_moeda(abs(lucro_atual))}/mês Agora"
         cta_cor = "danger"
-        wpp_msg = (
-            f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa e apontou um déficit estimado de "
-            f"*{fmt_moeda(abs(lucro_atual))}/mês* ({qtd_cegas} pontos cegos). Quero agendar a sessão de 20 min para estancar esse prejuízo."
-        )
     elif qtd_cegas >= 2:
         cta_texto = f"🔍 Destravar Meus {qtd_cegas} Pontos Cegos Agora"
         cta_cor = "warning"
-        wpp_msg = (
-            f"Olá! Acabei de gerar o laudo da *{empresa_nome}* no Doutor Caixa e identificamos *{qtd_cegas} pontos cegos* "
-            f"com potencial oculto de *{fmt_moeda(potencial_oculto)}/mês*. Quero agendar minha Sessão Estratégica de 20 min."
-        )
     else:
         cta_texto = f"🚀 Desenhar Plano para Bater {fmt_moeda(meta_fat)}/mês"
         cta_cor = "success"
-        wpp_msg = (
-            f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa e quero desenhar o plano comercial e de caixa "
-            f"para bater *{fmt_moeda(meta_fat)}/mês*."
-        )
+
+    wpp_msg = (
+        f"Olá! Fiz o diagnóstico da *{empresa_nome}* no Doutor Caixa. "
+        f"O laudo apontou {qtd_cegas} ponto(s) cego(s) e potencial de {fmt_moeda(potencial_oculto)}/mês. "
+        f"Quero agendar minha Sessão Estratégica de 20 min com um especialista."
+    )
 
     return {
         "bench": bench,
@@ -456,11 +364,10 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.1)",
         "Accept": "application/json"
     }
 
-    # 1. BrasilAPI
     try:
         req = urllib.request.Request(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}", headers=headers)
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -477,7 +384,6 @@ def api_consultar_cnpj(cnpj):
     except Exception:
         pass
 
-    # 2. Fallback: Minha Receita
     try:
         req = urllib.request.Request(f"https://minhareceita.org/{cnpj_limpo}", headers=headers)
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -494,7 +400,6 @@ def api_consultar_cnpj(cnpj):
     except Exception:
         pass
 
-    # 3. Fallback: CNPJ.ws
     try:
         req = urllib.request.Request(f"https://publica.cnpj.ws/cnpj/{cnpj_limpo}", headers=headers)
         with urllib.request.urlopen(req, timeout=6) as resp:
@@ -520,7 +425,6 @@ def api_consultar_cnpj(cnpj):
 
 @app.route("/api/lead-parcial", methods=["POST"])
 def api_lead_parcial():
-    """Captura silenciosa ao avançar da Etapa 1 para Etapa 2."""
     body = request.get_json(silent=True) or {}
     cnpj = limpar_cnpj(body.get("cnpj", ""))
     empresa = (body.get("empresa") or "").strip()
@@ -540,7 +444,6 @@ def api_lead_parcial():
     existente = cur.fetchone()
 
     if existente:
-        # Só atualiza dados básicos se ainda não finalizou o diagnóstico completo
         if not existente["completo"]:
             cur.execute("""
                 UPDATE leads
@@ -574,22 +477,13 @@ def api_lead_parcial():
 
 @app.route("/api/lead-status", methods=["POST"])
 def api_lead_status():
-    """Atualiza etapa do Mini-CRM direto do /painel."""
     if request.cookies.get("painel_auth") != PAINEL_SENHA:
         return jsonify({"ok": False, "erro": "Não autorizado"}), 401
 
     body = request.get_json(silent=True) or {}
     cnpj = limpar_cnpj(body.get("cnpj", ""))
     novo_status = (body.get("status") or "").strip()
-    status_validos = [
-        "Lead Incompleto",
-        "Novo",
-        "Contatado",
-        "Reunião Agendada",
-        "Proposta Enviada",
-        "Fechado",
-        "Perdido"
-    ]
+    status_validos = ["Lead Incompleto", "Novo", "Contatado", "Reunião Agendada", "Proposta Enviada", "Fechado", "Perdido"]
     if not cnpj or novo_status not in status_validos:
         return jsonify({"ok": False, "erro": "Dados inválidos"}), 400
 
@@ -605,7 +499,7 @@ def api_lead_status():
 
 
 # ==============================================================================
-# ROTAS DE RASTREAMENTO DE CONVERSÃO (TELEGRAM ALERTA QUENTE + REDIRECT)
+# ROTAS DE RASTREAMENTO DE CONVERSÃO (TELEGRAM ALERTA QUENTE COM LINK WPP + COPY)
 # ==============================================================================
 @app.route("/cta-wpp/<cnpj>")
 def cta_whatsapp(cnpj):
@@ -626,15 +520,19 @@ def cta_whatsapp(cnpj):
         if diag.get("wpp_msg"):
             wpp_msg = diag["wpp_msg"]
 
+        wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+        link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
+
         alerta = (
-            f"🔥 <b>ALERTA QUENTE — CLIQUE NO WHATSAPP!</b>\n\n"
+            f"🔥 <b>ALERTA QUENTE — CLICOU NO WHATSAPP!</b>\n\n"
             f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
             f"📍 <b>Local:</b> {lead['cidade'] or '-'}/{lead['uf'] or '-'}\n"
             f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
             f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n"
             f"🚨 <b>Pontos Cegos:</b> {lead['qtd_cegas'] or 0}\n"
             f"💰 <b>Potencial Oculto:</b> {fmt_moeda(lead['potencial_oculto'])}\n\n"
-            f"⚡ <i>Ele acabou de clicar no botão do laudo agora ({ts}). Chame nos próximos 2 minutos!</i>"
+            f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA FALAR COM O CLIENTE NO WHATSAPP</b></a>\n\n"
+            f"⚡ <i>Aberto agora às {ts}. Chame imediatamente!</i>"
         )
         enviar_telegram_async(alerta)
 
@@ -653,25 +551,37 @@ def cta_agenda(cnpj):
     lead = cur.fetchone()
 
     ts = agora_br()
+    wpp_msg = "Olá! Gostaria de agendar minha Sessão Estratégica de 20 min (Diagnóstico Comercial & Caixa)."
+
     if lead:
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
         conn.commit()
 
+        diag = json.loads(lead["diagnostico_json"] or "{}")
+        if lead.get("empresa"):
+            wpp_msg = f"Olá! Sou {lead['solicitante']} da *{lead['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
+
+        wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+        link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
+
         alerta = (
-            f"📅 <b>ALERTA QUENTE — ABRIU AGENDA DIRETA!</b>\n\n"
+            f"📅 <b>ALERTA QUENTE — QUER AGENDAR REUNIÃO!</b>\n\n"
             f"🏢 <b>Empresa:</b> {lead['empresa']} ({formatar_cnpj(cnpj_limpo)})\n"
             f"👤 <b>Contato:</b> {lead['solicitante'] or '-'} ({lead['cargo'] or '-'})\n"
-            f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n"
-            f"⏰ <b>Horário:</b> {ts}"
+            f"📱 <b>WhatsApp:</b> {lead['whatsapp'] or '-'}\n\n"
+            f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA COMBINAR O HORÁRIO NO WHATSAPP</b></a>\n\n"
+            f"⏰ <i>Solicitado às {ts}</i>"
         )
         enviar_telegram_async(alerta)
 
     conn.close()
-    return redirect(AGENDA_URL, code=302)
+    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+    url_final = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(wpp_msg)}"
+    return redirect(url_final, code=302)
 
 
 # ==============================================================================
-# ROTA PRINCIPAL (FORMULÁRIO MULTI-ETAPAS) E LAUDO EXECUTIVO
+# ROTA PRINCIPAL E GERADOR DE PDF EXECUTIVO (FPDF)
 # ==============================================================================
 @app.route("/", methods=["GET"])
 def index():
@@ -796,6 +706,9 @@ def gerar_laudo():
         "atualizado_em": ts
     })
 
+    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+    link_wpp_direto = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(diag['wpp_msg'])}"
+
     alerta_novo = (
         f"✅ <b>NOVO DIAGNÓSTICO CONCLUÍDO!</b>\n\n"
         f"🏢 <b>Empresa:</b> {empresa}\n"
@@ -804,7 +717,8 @@ def gerar_laudo():
         f"📱 <b>WhatsApp:</b> {whatsapp}\n"
         f"💵 <b>Faturamento:</b> {fmt_moeda(dados['faturamento'])}\n"
         f"🚨 <b>Pontos Cegos:</b> {diag['qtd_cegas']}\n"
-        f"💰 <b>Potencial Oculto:</b> {fmt_moeda(diag['potencial_oculto'])}/mês"
+        f"💰 <b>Potencial Oculto:</b> {fmt_moeda(diag['potencial_oculto'])}/mês\n\n"
+        f"💬 <a href=\"{link_wpp_direto}\"><b>CLIQUE AQUI PARA CHAMAR O CLIENTE NO WHATSAPP</b></a>"
     )
     enviar_telegram_async(alerta_novo)
 
@@ -828,18 +742,185 @@ def ver_laudo(cnpj):
     if not diag:
         diag = processar_diagnostico(dados)
 
-    # Calcula vagas restantes simuladas/reais na semana (máx 4 empresas/semana na Grande Recife)
-    vagas_restantes = 2
     return render_template_string(
         TEMPLATE_LAUDO,
         lead=dados,
         diag=diag,
-        vagas_restantes=vagas_restantes
+        vagas_restantes=2
     )
 
 
+@app.route("/baixar_pdf/<cnpj>")
+def baixar_pdf(cnpj):
+    cnpj_limpo = limpar_cnpj(cnpj)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM leads WHERE cnpj = ?", (cnpj_limpo,))
+    lead = cur.fetchone()
+    conn.close()
+
+    if not lead:
+        return "Lead não encontrado", 404
+
+    dados = dict(lead)
+    diag = json.loads(dados.get("diagnostico_json") or "{}")
+    if not diag:
+        diag = processar_diagnostico(dados)
+
+    class PDF(FPDF):
+        def header(self):
+            # Logo oficial restaurada
+            try:
+                self.image('static/logo.png', 12, 9, 30)
+            except Exception:
+                pass
+            self.set_text_color(15, 46, 28)
+            self.set_font('helvetica', 'B', 15)
+            self.set_xy(45, 14)
+            self.cell(153, 7, 'LAUDO EXECUTIVO DE CAIXA E VENDAS', border=0, align='R')
+            self.set_font('helvetica', '', 8.5)
+            self.set_text_color(100, 110, 105)
+            self.set_xy(45, 22)
+            self.cell(153, 5, 'DOUTOR CAIXA — INTELIGÊNCIA COMERCIAL E FINANCEIRA', border=0, align='R')
+            self.set_draw_color(213, 232, 220)
+            self.set_line_width(0.4)
+            self.line(12, 36, 198, 36)
+            self.set_y(42)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('helvetica', '', 7.5)
+            self.set_text_color(120, 130, 124)
+            self.cell(0, 4, f'Doutor Caixa | Inteligência Financeira & Comercial — Página {self.page_no()}', ln=1, align='C')
+            self.cell(0, 4, 'Doutor Caixa é uma empresa da MaqTrak - Hub de Soluções em Inteligência de Mercado.', align='C')
+
+    pdf = PDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    def pdf_safe(texto):
+        return str(texto or "").encode("latin-1", "ignore").decode("latin-1")
+
+    # 1. Bloco de Dados do Cliente com Alta Legibilidade (Texto Preto Puro)
+    pdf.set_fill_color(247, 250, 248)
+    pdf.rect(12, pdf.get_y(), 186, 22, 'F')
+    pdf.set_fill_color(0, 200, 83)
+    pdf.rect(12, pdf.get_y(), 2.5, 22, 'F')
+
+    pdf.set_xy(18, pdf.get_y() + 3)
+    pdf.set_font('helvetica', 'B', 10)
+    pdf.set_text_color(0, 0, 0)  # Preto puro para máxima leitura
+    loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get('cidade') and dados.get('uf') else ""
+    pdf.cell(175, 5, pdf_safe(f"EMPRESA: {dados['empresa']}{loc_pdf} | CNPJ: {formatar_cnpj(cnpj_limpo)}"), ln=1)
+    pdf.set_x(18)
+    pdf.set_font('helvetica', '', 9)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(175, 4.5, pdf_safe(f"Segmento: {dados['ramo']} | Solicitante: {dados['solicitante']} ({dados['cargo']})"), ln=1)
+    pdf.set_x(18)
+    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_text_color(0, 166, 69)
+    pdf.cell(175, 4.5, pdf_safe(f"Faturamento: {fmt_moeda(dados.get('faturamento'))} | Pontos Cegos: {diag.get('qtd_cegas', 0)}"), ln=1)
+    pdf.ln(8)
+
+    # 2. Ponto de Equilíbrio & Lucro
+    y = pdf.get_y()
+    pdf.set_fill_color(235, 245, 251)
+    pdf.rect(12, y, 186, 24, 'F')
+    pdf.set_fill_color(41, 128, 185)
+    pdf.rect(12, y, 2.5, 24, 'F')
+    pdf.set_xy(18, y + 3)
+    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_text_color(41, 128, 185)
+    pdf.cell(175, 4.5, "PONTO DE EQUILÍBRIO & SAÚDE FINANCEIRA", ln=1)
+    pdf.set_x(18)
+    pdf.set_font('helvetica', 'B', 13)
+    pdf.set_text_color(15, 23, 42)
+    pe_txt = fmt_moeda(diag.get('ponto_equilibrio')) if diag.get('ponto_equilibrio') else "Não calculável"
+    lucro_txt = fmt_moeda(diag.get('lucro_atual')) if diag.get('lucro_atual') is not None else "Não informado"
+    pdf.cell(175, 6, pdf_safe(f"Empate Mínimo: {pe_txt}  |  Resultado Operacional: {lucro_txt}/mês"), ln=1)
+    pdf.set_x(18)
+    pdf.set_font('helvetica', '', 8.5)
+    pdf.set_text_color(50, 60, 70)
+    pdf.cell(175, 4.5, pdf_safe(f"Potencial Oculto Mensal (Dinheiro na Mesa): {fmt_moeda(diag.get('potencial_oculto'))}"), ln=1)
+    pdf.ln(10)
+
+    # 3. Radar de Pontos Cegos
+    pdf.set_font('helvetica', 'B', 11)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(186, 6, "PRINCIPAIS PONTOS CEGOS DE GESTÃO", ln=1)
+    pdf.set_font('helvetica', '', 9)
+
+    for item in diag.get("pontos_cegos", []):
+        if pdf.get_y() > 240:
+            pdf.add_page()
+        y_item = pdf.get_y()
+        pdf.set_fill_color(254, 242, 242)
+        pdf.rect(12, y_item, 186, 14, 'F')
+        pdf.set_fill_color(239, 68, 68)
+        pdf.rect(12, y_item, 2, 14, 'F')
+        pdf.set_xy(17, y_item + 2)
+        pdf.set_font('helvetica', 'B', 9)
+        pdf.set_text_color(185, 28, 28)
+        pdf.cell(175, 4.5, pdf_safe(f"[{item.get('severidade', 'ALTO')}] {item.get('titulo', '')}"), ln=1)
+        pdf.set_x(17)
+        pdf.set_font('helvetica', '', 8.5)
+        pdf.set_text_color(50, 60, 70)
+        pdf.cell(175, 4.5, pdf_safe(item.get('descricao', '')), ln=1)
+        pdf.ln(4)
+
+    # 4. QR Code e Chamada para Ação Restaurados no Rodapé do PDF
+    if pdf.get_y() > 210:
+        pdf.add_page()
+
+    y_cta = pdf.get_y() + 6
+    pdf.set_fill_color(15, 46, 28)
+    pdf.rect(12, y_cta, 186, 42, 'F')
+    pdf.set_fill_color(0, 200, 83)
+    pdf.rect(12, y_cta, 3, 42, 'F')
+
+    wpp_destino = "".join(filter(str.isdigit, WHATSAPP_CONSULTOR))
+    link_wpp_pdf = f"https://wa.me/{wpp_destino}?text={urllib.parse.quote(diag.get('wpp_msg', ''))}"
+
+    pdf.set_xy(18, y_cta + 4)
+    pdf.set_font('helvetica', 'B', 8.5)
+    pdf.set_text_color(243, 156, 18)
+    pdf.cell(125, 4.5, pdf_safe("CADA DIA SEM AÇÃO CUSTA MARGEM E DINHEIRO NO CAIXA."), ln=1)
+
+    pdf.set_x(18)
+    pdf.set_font('helvetica', 'B', 12)
+    pdf.set_text_color(0, 200, 83)
+    pdf.cell(125, 6, pdf_safe("FALE AGORA COM O ESPECIALISTA"), ln=1, link=link_wpp_pdf)
+
+    pdf.set_x(18)
+    pdf.set_font('helvetica', '', 8.2)
+    pdf.set_text_color(235, 242, 238)
+    pdf.multi_cell(125, 4.2, pdf_safe("Aponte a câmera do seu celular para o QR Code ao lado e fale diretamente com o consultor para destravar seu plano de ação:"))
+
+    y_num = y_cta + 30
+    pdf.set_fill_color(24, 68, 42)
+    pdf.rect(18, y_num, 84, 8.5, 'F')
+    pdf.set_xy(20, y_num + 1.8)
+    pdf.set_font('helvetica', 'B', 9)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(80, 5, pdf_safe(f"WhatsApp: {WHATSAPP_CONSULTOR}"), link=link_wpp_pdf)
+
+    # QR Code do WhatsApp
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(152, y_cta + 4, 34, 34, 'F')
+    try:
+        pdf.image('static/qrcode_whatsapp.png', x=153, y=y_cta + 5, w=32, h=32, link=link_wpp_pdf)
+    except Exception:
+        pdf.set_xy(152, y_cta + 16)
+        pdf.set_font('helvetica', 'B', 7)
+        pdf.set_text_color(15, 46, 28)
+        pdf.cell(34, 4, "QR WhatsApp", align='C')
+
+    pdf_bytes = bytearray(pdf.output())
+    return send_file(io.BytesIO(pdf_bytes), download_name=f"Laudo_Executivo_{cnpj_limpo}.pdf", as_attachment=True, mimetype='application/pdf')
+
+
 # ==============================================================================
-# PAINEL ADMINISTRATIVO (MINI-CRM + LEADS INCOMPLETOS + INDICADORES)
+# PAINEL ADMINISTRATIVO (MINI-CRM)
 # ==============================================================================
 @app.route("/painel", methods=["GET", "POST"])
 def painel():
@@ -888,7 +969,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (UX DE ALTA CONVERSÃO)
+# TEMPLATES HTML (LAUDO COM WHATSAPP DIRETO NO BOTÃO DE AGENDA)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -899,17 +980,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --primary: #00C853;
-            --primary-dark: #00A645;
-            --bg: #F1F6F3;
-            --card: #FFFFFF;
-            --text: #0F172A;
-            --muted: #64748B;
-            --border: #E2E8F0;
-            --danger: #EF4444;
-            --warning: #F59E0B;
-        }
+        :root { --primary: #00C853; --primary-dark: #00A645; --bg: #F1F6F3; --card: #FFFFFF; --text: #0F172A; --muted: #64748B; --border: #E2E8F0; --danger: #EF4444; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
         .container { width: 100%; max-width: 540px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
@@ -930,49 +1001,39 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 
         h1 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
         .subtitle { font-size: 14px; color: var(--muted); line-height: 1.5; margin-bottom: 20px; }
-
         .info-banner { background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 12px; padding: 12px 14px; font-size: 12.5px; color: #166534; line-height: 1.45; margin-bottom: 18px; }
-        .info-banner strong { color: #14532D; }
 
         .field { margin-bottom: 16px; }
         label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: #1E293B; margin-bottom: 6px; }
         .badge-req { font-size: 11px; color: #00A645; background: #DCFCE7; padding: 2px 7px; border-radius: 6px; font-weight: 700; }
         .badge-opt { font-size: 11px; color: #64748B; background: #F1F5F9; padding: 2px 7px; border-radius: 6px; font-weight: 600; }
 
-        input, select { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; color: var(--text); background: #fff; transition: all 0.2s; outline: none; }
+        input, select { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; color: var(--text); background: #fff; outline: none; }
         input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.14); }
         input.input-erro { border-color: var(--danger); background: #FEF2F2; }
-
         .field-help { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
         .status-cnpj { font-size: 12.5px; font-weight: 600; margin-top: 6px; min-height: 18px; }
         .err-msg { font-size: 12px; color: var(--danger); font-weight: 600; margin-top: 4px; display: none; }
         .err-msg.visible { display: block; }
 
         .ramo-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px; font-size: 12.5px; color: #334155; line-height: 1.45; margin-bottom: 20px; }
-
-        /* Mini Calculadora de Margem */
         .calc-toggle { display: inline-flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 12.5px; font-weight: 700; color: #00A645; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 6px 11px; border-radius: 8px; cursor: pointer; }
-        .calc-toggle:hover { background: #D1FAE5; }
         .calc-box { display: none; margin-top: 10px; background: #F8FAFC; border: 1.5px dashed #94A3B8; border-radius: 12px; padding: 14px; }
         .calc-box.open { display: block; }
         .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
         .calc-box input { padding: 9px 11px; font-size: 13.5px; }
         .btn-aplicar-calc { margin-top: 10px; width: 100%; padding: 9px; border: none; border-radius: 9px; background: #0F172A; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
 
-        /* Teaser Desfocado na Etapa 4 */
-        .teaser-card { background: linear-gradient(135deg, #0F172A, #1E293B); color: #fff; border-radius: 16px; padding: 18px; margin-bottom: 20px; position: relative; overflow: hidden; }
+        .teaser-card { background: linear-gradient(135deg, #0F172A, #1E293B); color: #fff; border-radius: 16px; padding: 18px; margin-bottom: 20px; }
         .teaser-badge { display: inline-block; background: rgba(0,200,83,0.2); color: #4ADE80; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; margin-bottom: 10px; }
-        .teaser-text { font-size: 13.5px; line-height: 1.5; color: #E2E8F0; margin-bottom: 14px; }
-        .teaser-blur-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: relative; }
+        .teaser-blur-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         .teaser-metric { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px; }
         .teaser-metric small { display: block; font-size: 11px; color: #94A3B8; margin-bottom: 4px; }
-        .teaser-metric strong { font-size: 16px; color: #4ADE80; filter: blur(5px); user-select: none; display: inline-block; }
-        .teaser-lock { text-align: center; font-size: 11.5px; color: #CBD5E1; margin-top: 10px; font-weight: 600; }
+        .teaser-metric strong { font-size: 16px; color: #4ADE80; filter: blur(5px); }
 
         .btn-row { display: flex; gap: 10px; margin-top: 8px; }
-        .btn-primary { flex: 1; background: var(--primary); color: #fff; border: none; border-radius: 12px; padding: 15px 18px; font-size: 15.5px; font-weight: 800; cursor: pointer; transition: background 0.2s, transform 0.1s; box-shadow: 0 6px 18px rgba(0, 200, 83, 0.25); }
+        .btn-primary { flex: 1; background: var(--primary); color: #fff; border: none; border-radius: 12px; padding: 15px 18px; font-size: 15.5px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 200, 83, 0.25); }
         .btn-primary:hover { background: var(--primary-dark); }
-        .btn-primary:active { transform: scale(0.99); }
         .btn-back { background: #F1F5F9; color: #475569; border: none; border-radius: 12px; padding: 15px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
 
         .footer-lgpd { margin-top: 22px; padding-top: 16px; border-top: 1px solid #EEF2F0; text-align: center; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
@@ -1006,21 +1067,18 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <!-- ETAPA 1 -->
         <div class="step active" id="step-1">
             <h1>1. Dados da Empresa</h1>
-            <p class="subtitle">Digite o CNPJ para localizarmos sua empresa automaticamente e calibrarmos o diagnóstico ao seu setor.</p>
-
+            <p class="subtitle">Digite o CNPJ para localizarmos sua empresa automaticamente.</p>
             <div class="field">
                 <label>CNPJ Válido (Somente números) <span class="badge-req">Obrigatório</span></label>
                 <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" maxlength="18" inputmode="numeric">
                 <div class="status-cnpj" id="cnpj_status"></div>
                 <div class="err-msg" id="err_cnpj">Informe um CNPJ válido com 14 dígitos.</div>
             </div>
-
             <div class="field">
                 <label>Nome da Empresa <span class="badge-req">Obrigatório</span></label>
                 <input type="text" id="empresa_nome" name="empresa" placeholder="Ex: Distribuidora Recife Ltda">
                 <div class="err-msg" id="err_empresa_nome">Informe o nome da empresa.</div>
             </div>
-
             <div class="field">
                 <label>Ramo de Atuação / Modelo de Venda</label>
                 <select id="ramo" name="ramo">
@@ -1031,11 +1089,9 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
                     <option value="Recorrência / SaaS / Assinaturas">Recorrência / SaaS / Assinaturas</option>
                 </select>
             </div>
-
             <div class="ramo-box" id="ramo-desc">
-                🛒 <strong>Comércio e Varejo:</strong> Como cada mês começa sem contratos fixos garantidos, nosso cálculo vai focar em <strong>giro de estoque, movimento diário de loja/WhatsApp e proteção da margem</strong>.
+                🛒 <strong>Comércio e Varejo:</strong> Foco em giro de estoque, movimento diário e proteção de margem.
             </div>
-
             <div class="btn-row">
                 <button type="button" class="btn-primary" onclick="avancarEtapa1()">Avançar →</button>
             </div>
@@ -1044,51 +1100,29 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <!-- ETAPA 2 -->
         <div class="step" id="step-2">
             <h1>2. Raio-X Financeiro</h1>
-            <p class="subtitle">Preencha o que você souber agora para calcularmos seu ponto de equilíbrio real.</p>
-
-            <div class="info-banner">
-                💡 <strong>Não sabe algum número de cabeça?</strong> Pode deixar o campo em branco! Vamos sinalizar esse indicador como um <strong>Ponto de Atenção no seu laudo</strong> para você saber exatamente onde está operando no escuro.
-            </div>
-
+            <p class="subtitle">Preencha o que você souber agora. Campos em branco viram pontos de melhoria no laudo.</p>
             <div class="field">
                 <label>Faturamento Mensal Médio (R$) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="faturamento" name="faturamento" placeholder="Ex: 120.000,00" inputmode="decimal" class="mask-moeda">
-                <div class="field-help">Média de vendas brutas nos últimos 3 meses.</div>
+                <input type="text" id="faturamento" name="faturamento" placeholder="Ex: 120.000,00" class="mask-moeda">
             </div>
-
             <div class="field">
                 <label>Margem de Contribuição Média (%) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="margem" name="margem" placeholder="Ex: 35" inputmode="decimal">
-                <div class="field-help">Quanto sobra (%) de cada venda após pagar custo do produto/serviço, impostos e comissões.</div>
-
+                <input type="text" id="margem" name="margem" placeholder="Ex: 35">
                 <button type="button" class="calc-toggle" onclick="toggleCalcMargem()">🧮 Não sei minha margem % — Calcular em 10s</button>
-
                 <div class="calc-box" id="calc-margem-box">
-                    <div style="font-size:12px; font-weight:700; color:#1E293B;">Calculadora Rápida de Margem Líquida</div>
+                    <div style="font-size:12px; font-weight:700;">Calculadora Rápida de Margem</div>
                     <div class="calc-grid">
-                        <div>
-                            <label style="font-size:11.5px;">Preço de Venda / Receita (R$)</label>
-                            <input type="text" id="calc_preco" placeholder="Ex: 1.000,00" class="mask-moeda">
-                        </div>
-                        <div>
-                            <label style="font-size:11.5px;">Custo Produto/Serviço (R$)</label>
-                            <input type="text" id="calc_custo" placeholder="Ex: 550,00" class="mask-moeda">
-                        </div>
+                        <div><label style="font-size:11px;">Preço de Venda (R$)</label><input type="text" id="calc_preco" class="mask-moeda"></div>
+                        <div><label style="font-size:11px;">Custo Direto (R$)</label><input type="text" id="calc_custo" class="mask-moeda"></div>
                     </div>
-                    <div style="margin-top:8px;">
-                        <label style="font-size:11.5px;">Impostos + Comissões + Taxa Cartão (%)</label>
-                        <input type="text" id="calc_imp" placeholder="Ex: 12" inputmode="decimal">
-                    </div>
-                    <button type="button" class="btn-aplicar-calc" onclick="aplicarCalculoMargem()">Calcular e Preencher Margem Automaticamente ✓</button>
+                    <div style="margin-top:6px;"><label style="font-size:11px;">Impostos + Comissões (%)</label><input type="text" id="calc_imp"></div>
+                    <button type="button" class="btn-aplicar-calc" onclick="aplicarCalculoMargem()">Preencher Margem Automaticamente ✓</button>
                 </div>
             </div>
-
             <div class="field">
                 <label>Custos Fixos Mensais Totais (R$) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="custos_fixos" name="custos_fixos" placeholder="Ex: 38.000,00" inputmode="decimal" class="mask-moeda">
-                <div class="field-help">Soma de folha, pró-labore, aluguel, sistema, contabilidade e contas fixas (mesmo se vender zero).</div>
+                <input type="text" id="custos_fixos" name="custos_fixos" placeholder="Ex: 38.000,00" class="mask-moeda">
             </div>
-
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(1)">← Voltar</button>
                 <button type="button" class="btn-primary" onclick="irParaEtapa(3)">Avançar →</button>
@@ -1098,41 +1132,12 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <!-- ETAPA 3 -->
         <div class="step" id="step-3">
             <h1>3. Motor Comercial & Metas</h1>
-            <p class="subtitle">Vamos cruzar sua geração de oportunidades com a capacidade de fechamento do time.</p>
-
-            <div class="info-banner">
-                🎯 <strong>Dica:</strong> Se não controlar algum indicador comercial hoje, apenas deixe em branco e clique em avançar.
-            </div>
-
-            <div class="field">
-                <label>Ticket Médio por Venda / Contrato (R$) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="ticket_medio" name="ticket_medio" placeholder="Ex: 2.500,00" inputmode="decimal" class="mask-moeda">
-                <div class="field-help">Valor médio de cada pedido ou contrato fechado.</div>
-            </div>
-
-            <div class="field">
-                <label>Oportunidades / Orçamentos por Mês <span class="badge-opt">Opcional</span></label>
-                <input type="number" id="leads_mes" name="leads_mes" placeholder="Ex: 80" inputmode="numeric">
-                <div class="field-help">Quantos clientes pedem orçamento ou chegam no WhatsApp/loja por mês.</div>
-            </div>
-
-            <div class="field">
-                <label>Taxa de Fechamento / Conversão (%) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="taxa_conv" name="taxa_conv" placeholder="Ex: 20" inputmode="decimal">
-                <div class="field-help">De cada 100 orçamentos enviados, quantos viram venda paga?</div>
-            </div>
-
-            <div class="field">
-                <label>Tamanho da Equipe Comercial (Vendedores) <span class="badge-opt">Opcional</span></label>
-                <input type="number" id="vendedores" name="vendedores" placeholder="Ex: 3" inputmode="numeric">
-                <div class="field-help">Inclua você se você também atua nas vendas.</div>
-            </div>
-
-            <div class="field">
-                <label>Meta de Faturamento Desejada (R$/mês) <span class="badge-opt">Opcional</span></label>
-                <input type="text" id="meta_fat" name="meta_fat" placeholder="Ex: 180.000,00" inputmode="decimal" class="mask-moeda">
-            </div>
-
+            <p class="subtitle">Cruzamento de oportunidades e capacidade da equipe.</p>
+            <div class="field"><label>Ticket Médio por Venda (R$) <span class="badge-opt">Opcional</span></label><input type="text" id="ticket_medio" name="ticket_medio" class="mask-moeda"></div>
+            <div class="field"><label>Oportunidades / Orçamentos por Mês <span class="badge-opt">Opcional</span></label><input type="number" id="leads_mes" name="leads_mes"></div>
+            <div class="field"><label>Taxa de Fechamento (%) <span class="badge-opt">Opcional</span></label><input type="text" id="taxa_conv" name="taxa_conv"></div>
+            <div class="field"><label>Equipe Comercial (Vendedores) <span class="badge-opt">Opcional</span></label><input type="number" id="vendedores" name="vendedores" value="1"></div>
+            <div class="field"><label>Meta de Faturamento (R$/mês) <span class="badge-opt">Opcional</span></label><input type="text" id="meta_fat" name="meta_fat" class="mask-moeda"></div>
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(2)">← Voltar</button>
                 <button type="button" class="btn-primary" onclick="prepararEtapa4()">Ver Meu Diagnóstico →</button>
@@ -1142,339 +1147,114 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <!-- ETAPA 4 -->
         <div class="step" id="step-4">
             <h1>4. Liberar Laudo Completo</h1>
-            <p class="subtitle">Seu diagnóstico executivo já foi processado. Preencha seus dados para desbloquear.</p>
-
-            <!-- PRÉVIA DESFOCADA (TEASER) -->
+            <p class="subtitle">Diagnóstico pronto. Preencha seus dados para desbloquear.</p>
             <div class="teaser-card">
                 <div class="teaser-badge">⚡ DIAGNÓSTICO PRONTO</div>
-                <div class="teaser-text" id="teaser-resumo">
-                    ✅ Encontramos <strong>3 pontos cegos</strong> e calculamos o faturamento exato para empatar as contas da sua empresa.
-                </div>
+                <div style="font-size:13.5px; color:#E2E8F0;" id="teaser-resumo">✅ Encontramos pontos cegos e calculamos seu ponto de equilíbrio.</div>
                 <div class="teaser-blur-grid">
-                    <div class="teaser-metric">
-                        <small>Ponto de Equilíbrio</small>
-                        <strong>R$ 84.500,00</strong>
-                    </div>
-                    <div class="teaser-metric">
-                        <small>Potencial Oculto / Mês</small>
-                        <strong>R$ 27.900,00</strong>
-                    </div>
+                    <div class="teaser-metric"><small>Ponto de Equilíbrio</small><strong>R$ 84.500</strong></div>
+                    <div class="teaser-metric"><small>Potencial Oculto</small><strong>R$ 27.900</strong></div>
                 </div>
-                <div class="teaser-lock">🔒 Informe seu nome, cargo e WhatsApp abaixo para liberar o laudo</div>
             </div>
-
-            <div class="field">
-                <label>Seu Nome Completo <span class="badge-req">Obrigatório</span></label>
-                <input type="text" id="solicitante" name="solicitante" placeholder="Ex: Carlos Eduardo Silva">
-                <div class="err-msg" id="err_solicitante">Informe seu nome.</div>
-            </div>
-
+            <div class="field"><label>Seu Nome Completo <span class="badge-req">Obrigatório</span></label><input type="text" id="solicitante" name="solicitante" placeholder="Carlos Silva"></div>
             <div class="field">
                 <label>Seu Cargo na Empresa <span class="badge-req">Obrigatório</span></label>
                 <select id="cargo" name="cargo">
-                    <option value="">Selecione seu cargo...</option>
+                    <option value="">Selecione...</option>
                     <option value="Sócio / Proprietário / CEO">Sócio / Proprietário / CEO</option>
                     <option value="Diretor Comercial / Geral">Diretor Comercial / Geral</option>
                     <option value="Gerente Comercial / Financeiro">Gerente Comercial / Financeiro</option>
                     <option value="Administrador / Gestor">Administrador / Gestor</option>
                 </select>
-                <div class="err-msg" id="err_cargo">Selecione seu cargo.</div>
             </div>
-
-            <div class="field">
-                <label>WhatsApp com DDD <span class="badge-req">Obrigatório</span></label>
-                <input type="tel" id="whatsapp" name="whatsapp" placeholder="(81) 99999-9999" maxlength="15" inputmode="tel">
-                <div class="err-msg" id="err_whatsapp">Informe um número de WhatsApp válido com DDD.</div>
-            </div>
-
+            <div class="field"><label>WhatsApp com DDD <span class="badge-req">Obrigatório</span></label><input type="tel" id="whatsapp" name="whatsapp" placeholder="(81) 99999-9999" maxlength="15"></div>
             <div class="btn-row">
                 <button type="button" class="btn-back" onclick="irParaEtapa(3)">← Voltar</button>
                 <button type="submit" class="btn-primary" onclick="return validarFinal()">🔓 Liberar Laudo Agora</button>
             </div>
         </div>
     </form>
-
-    <div class="footer-lgpd">
-        <div class="box-lgpd">
-            🔒 <strong>Sigilo Garantido:</strong> Seus dados são confidenciais e protegidos pela LGPD.
-        </div>
-        Doutor Caixa é uma empresa da <strong>MaqTrak</strong> - Hub de Soluções em Inteligência de Mercado.
-    </div>
+    <div class="footer-lgpd"><div class="box-lgpd">🔒 <strong>Sigilo LGPD</strong></div>Doutor Caixa — <strong>MaqTrak</strong></div>
 </div>
 
 <script>
     let ultimoCnpjBuscado = "";
     let nomeAutoPreenchido = false;
-
-    const descricoesRamo = {
-        "Comércio / Varejo / Distribuição (Produtos)": "🛒 <strong>Comércio e Varejo:</strong> Como cada mês começa sem contratos fixos garantidos, nosso cálculo vai focar em <strong>giro de estoque, movimento diário de loja/WhatsApp e proteção da margem</strong>.",
-        "Serviços B2B / Consultoria / Agência / TI": "💼 <strong>Serviços B2B & Agências:</strong> Vamos calibrar seu diagnóstico para <strong>capacidade de entrega da equipe, margem por hora/projeto e previsibilidade de propostas</strong>.",
-        "Clínicas / Saúde / Estética": "🩺 <strong>Saúde & Clínicas:</strong> Nosso modelo vai avaliar <strong>ocupação de agenda, conversão de avaliações e margem líquida por procedimento</strong>.",
-        "Indústria / Fábrica / Máquinas": "🏭 <strong>Indústria & Máquinas:</strong> Vamos analisar <strong>absorção de custo fixo industrial, ciclo de negociação técnica e margem de contribuição</strong>.",
-        "Recorrência / SaaS / Assinaturas": "🔄 <strong>Recorrência & Assinaturas:</strong> O foco será <strong>velocidade de aquisição (CAC), margem recorrente e expansão da base ativa</strong>."
-    };
-
-    document.getElementById('ramo').addEventListener('change', function(e) {
-        document.getElementById('ramo-desc').innerHTML = descricoesRamo[e.target.value] || "";
-    });
-
-    function validarCNPJ(cnpj) {
-        cnpj = cnpj.replace(/[^\d]+/g, '');
-        if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
-        let tamanho = cnpj.length - 2;
-        let numeros = cnpj.substring(0, tamanho);
-        let digitos = cnpj.substring(tamanho);
-        let soma = 0, pos = tamanho - 7;
-        for (let i = tamanho; i >= 1; i--) {
-            soma += numeros.charAt(tamanho - i) * pos--;
-            if (pos < 2) pos = 9;
-        }
-        let resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
-        if (resultado != digitos.charAt(0)) return false;
-        tamanho += 1;
-        numeros = cnpj.substring(0, tamanho);
-        soma = 0; pos = tamanho - 7;
-        for (let i = tamanho; i >= 1; i--) {
-            soma += numeros.charAt(tamanho - i) * pos--;
-            if (pos < 2) pos = 9;
-        }
-        resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
-        return resultado == digitos.charAt(1);
+    function validarCNPJ(c) {
+        c = c.replace(/[^\d]+/g,'');
+        if(c.length!==14 || /^(\d)\1+$/.test(c)) return false;
+        let t = c.length - 2, n = c.substring(0, t), d = c.substring(t), s = 0, p = t - 7;
+        for (let i = t; i >= 1; i--) { s += n.charAt(t - i) * p--; if (p < 2) p = 9; }
+        let r = s % 11 < 2 ? 0 : 11 - s % 11;
+        if (r != d.charAt(0)) return false;
+        t++; n = c.substring(0, t); s = 0; p = t - 7;
+        for (let i = t; i >= 1; i--) { s += n.charAt(t - i) * p--; if (p < 2) p = 9; }
+        r = s % 11 < 2 ? 0 : 11 - s % 11;
+        return r == d.charAt(1);
     }
-
-    async function consultarBrasilAPI(cnpjLimpo) {
-        if (cnpjLimpo === ultimoCnpjBuscado) return;
-        ultimoCnpjBuscado = cnpjLimpo;
-
-        const statusEl = document.getElementById('cnpj_status');
-        const nomeEl = document.getElementById('empresa_nome');
-        statusEl.style.color = '#64748B';
-        statusEl.innerText = '⏳ Localizando dados da empresa...';
-
+    async function consultarBrasilAPI(cnpj) {
+        if (cnpj === ultimoCnpjBuscado) return;
+        ultimoCnpjBuscado = cnpj;
+        const st = document.getElementById('cnpj_status'), nom = document.getElementById('empresa_nome');
+        st.innerText = '⏳ Buscando empresa...';
         try {
-            const resp = await fetch(`/api/cnpj/${cnpjLimpo}`);
-            const data = await resp.json();
-            if (!resp.ok || !data.ok) {
-                ultimoCnpjBuscado = "";
-                statusEl.style.color = '#64748B';
-                statusEl.innerText = 'ℹ️ CNPJ válido. Informe o nome da empresa abaixo para continuar.';
-                return;
-            }
-
-            const nomeOficial = (data.nome || '').trim();
-            const municipio = (data.municipio || '').trim();
-            const uf = (data.uf || '').trim();
-            const cnae = (data.cnae || '').trim();
-
-            if (nomeOficial && (!nomeEl.value.trim() || nomeAutoPreenchido)) {
-                nomeEl.value = nomeOficial;
-                nomeAutoPreenchido = true;
-                nomeEl.classList.remove('input-erro');
-                document.getElementById('err_empresa_nome').classList.remove('visible');
-            }
-            document.getElementById('inp_cidade').value = municipio;
-            document.getElementById('inp_uf').value = uf;
-            document.getElementById('inp_cnae').value = cnae;
-
-            if (municipio && uf) {
-                statusEl.style.color = '#00A645';
-                statusEl.innerText = `✅ Empresa localizada em ${municipio}/${uf}`;
-            } else if (nomeOficial) {
-                statusEl.style.color = '#00A645';
-                statusEl.innerText = '✅ Dados da empresa localizados!';
-            }
-        } catch (e) {
-            ultimoCnpjBuscado = "";
-            statusEl.style.color = '#64748B';
-            statusEl.innerText = 'ℹ️ CNPJ válido. Preencha o nome da empresa abaixo.';
-        }
+            const res = await fetch(`/api/cnpj/${cnpj}`);
+            const d = await res.json();
+            if(d.ok) {
+                if(d.nome && (!nom.value.trim() || nomeAutoPreenchido)) { nom.value = d.nome; nomeAutoPreenchido = true; }
+                document.getElementById('inp_cidade').value = d.municipio || '';
+                document.getElementById('inp_uf').value = d.uf || '';
+                document.getElementById('inp_cnae').value = d.cnae || '';
+                st.style.color = '#00A645'; st.innerText = `✅ Empresa localizada em ${d.municipio}/${d.uf}`;
+            } else { st.innerText = ''; }
+        } catch(e) { st.innerText = ''; }
     }
-
-    const cnpjInput = document.getElementById('cnpj');
-    cnpjInput.addEventListener('input', function(e) {
-        let v = e.target.value.replace(/\D/g, '').slice(0, 14);
-        v = v.replace(/^(\d{2})(\d)/, '$1.$2');
-        v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
-        v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
-        v = v.replace(/(\d{4})(\d)/, '$1-$2');
+    const cInp = document.getElementById('cnpj');
+    cInp.addEventListener('input', e => {
+        let v = e.target.value.replace(/\D/g,'').slice(0,14);
+        v = v.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2');
         e.target.value = v;
-
-        let digits = v.replace(/\D/g, '');
-        if (digits.length === 14 && validarCNPJ(digits)) {
-            document.getElementById('err_cnpj').classList.remove('visible');
-            cnpjInput.classList.remove('input-erro');
-            consultarBrasilAPI(digits);
-        }
+        let d = v.replace(/\D/g,'');
+        if(d.length===14 && validarCNPJ(d)) consultarBrasilAPI(d);
     });
-
-    cnpjInput.addEventListener('blur', function(e) {
-        let digits = e.target.value.replace(/\D/g, '').slice(0, 14);
-        if (digits.length === 14 && validarCNPJ(digits)) {
-            consultarBrasilAPI(digits);
-        }
-    });
-
-    document.getElementById('empresa_nome').addEventListener('input', function() {
-        nomeAutoPreenchido = false;
-    });
-
-    // Máscara monetária BRL
-    document.querySelectorAll('.mask-moeda').forEach(inp => {
-        inp.addEventListener('input', function(e) {
-            let v = e.target.value.replace(/\D/g, '');
-            if (!v) { e.target.value = ''; return; }
-            v = (parseInt(v, 10) / 100).toFixed(2) + '';
-            v = v.replace('.', ',');
-            v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
-            e.target.value = v;
+    document.querySelectorAll('.mask-moeda').forEach(i => {
+        i.addEventListener('input', e => {
+            let v = e.target.value.replace(/\D/g,'');
+            if(!v) { e.target.value = ''; return; }
+            e.target.value = (parseInt(v,10)/100).toFixed(2).replace('.',',').replace(/(\d)(?=(\d{3})+(?!\d))/g,'$1.');
         });
     });
-
-    // Máscara WhatsApp
-    document.getElementById('whatsapp').addEventListener('input', function(e) {
-        let v = e.target.value.replace(/\D/g, '').slice(0, 11);
-        if (v.length > 6) {
-            v = v.replace(/^(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3');
-        } else if (v.length > 2) {
-            v = v.replace(/^(\d{2})(\d{0,5})/, '($1) $2');
-        }
+    document.getElementById('whatsapp').addEventListener('input', e => {
+        let v = e.target.value.replace(/\D/g,'').slice(0,11);
+        if(v.length>6) v=v.replace(/^(\d{2})(\d{5})(\d{0,4})/,'($1) $2-$3');
+        else if(v.length>2) v=v.replace(/^(\d{2})(\d{0,5})/,'($1) $2');
         e.target.value = v;
     });
-
-    function parseBRL(str) {
-        if (!str) return null;
-        let limpo = str.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '');
-        let n = parseFloat(limpo);
-        return isNaN(n) ? null : n;
-    }
-
-    function toggleCalcMargem() {
-        document.getElementById('calc-margem-box').classList.toggle('open');
-    }
-
+    function toggleCalcMargem() { document.getElementById('calc-margem-box').classList.toggle('open'); }
+    function parseBRL(s) { return s ? parseFloat(s.replace(/\./g,'').replace(',','.').replace(/[^\d.-]/g,'')) || 0 : 0; }
     function aplicarCalculoMargem() {
-        const preco = parseBRL(document.getElementById('calc_preco').value);
-        const custo = parseBRL(document.getElementById('calc_custo').value) || 0;
-        const imp = parseBRL(document.getElementById('calc_imp').value) || 0;
-
-        if (!preco || preco <= 0) {
-            alert('Informe o Preço de Venda ou Receita para calcular.');
-            return;
-        }
-        let margemBrutaPct = ((preco - custo) / preco) * 100;
-        let margemLiquida = Math.max(1, margemBrutaPct - imp);
-        document.getElementById('margem').value = margemLiquida.toFixed(1).replace('.', ',');
+        let p = parseBRL(document.getElementById('calc_preco').value), c = parseBRL(document.getElementById('calc_custo').value), i = parseBRL(document.getElementById('calc_imp').value);
+        if(!p) { alert('Informe o preço de venda'); return; }
+        let m = Math.max(1, (((p - c) / p) * 100) - i);
+        document.getElementById('margem').value = m.toFixed(1).replace('.',',');
         document.getElementById('calc-margem-box').classList.remove('open');
     }
-
     function irParaEtapa(n) {
         document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
         document.getElementById(`step-${n}`).classList.add('active');
-
-        const titulos = {
-            1: ["ETAPA 1 DE 4 — DADOS DA EMPRESA", "25%"],
-            2: ["ETAPA 2 DE 4 — RAIO-X FINANCEIRO", "50%"],
-            3: ["ETAPA 3 DE 4 — MOTOR COMERCIAL", "75%"],
-            4: ["ETAPA 4 DE 4 — LIBERAR LAUDO", "100%"]
-        };
-        document.getElementById('step-label').innerText = titulos[n][0];
-        document.getElementById('step-pct').innerText = titulos[n][1];
-        document.getElementById('progress-fill').style.width = titulos[n][1];
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const tit = {1: ["ETAPA 1 DE 4", "25%"], 2: ["ETAPA 2 DE 4", "50%"], 3: ["ETAPA 3 DE 4", "75%"], 4: ["ETAPA 4 DE 4", "100%"]};
+        document.getElementById('step-label').innerText = tit[n][0]; document.getElementById('step-pct').innerText = tit[n][1]; document.getElementById('progress-fill').style.width = tit[n][1];
+        window.scrollTo({top:0, behavior:'smooth'});
     }
-
     function avancarEtapa1() {
-        const digits = document.getElementById('cnpj').value.replace(/\D/g, '');
-        const empresa = document.getElementById('empresa_nome').value.trim();
-        let ok = true;
-
-        if (digits.length !== 14 || !validarCNPJ(digits)) {
-            document.getElementById('cnpj').classList.add('input-erro');
-            document.getElementById('err_cnpj').classList.add('visible');
-            ok = false;
-        } else {
-            document.getElementById('cnpj').classList.remove('input-erro');
-            document.getElementById('err_cnpj').classList.remove('visible');
-        }
-
-        if (!empresa) {
-            document.getElementById('empresa_nome').classList.add('input-erro');
-            document.getElementById('err_empresa_nome').classList.add('visible');
-            ok = false;
-        } else {
-            document.getElementById('empresa_nome').classList.remove('input-erro');
-            document.getElementById('err_empresa_nome').classList.remove('visible');
-        }
-
-        if (!ok) return;
-
-        // Captura silenciosa em segundo plano (Lead Parcial)
-        fetch('/api/lead-parcial', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                cnpj: digits,
-                empresa: empresa,
-                cidade: document.getElementById('inp_cidade').value,
-                uf: document.getElementById('inp_uf').value,
-                cnae: document.getElementById('inp_cnae').value,
-                ramo: document.getElementById('ramo').value,
-                origem: document.getElementById('inp_origem').value
-            })
-        }).catch(() => {});
-
+        let d = cInp.value.replace(/\D/g,''), emp = document.getElementById('empresa_nome').value.trim();
+        if(d.length!==14 || !validarCNPJ(d) || !emp) { alert('Informe CNPJ válido e Nome da Empresa.'); return; }
+        fetch('/api/lead-parcial', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cnpj:d, empresa:emp, cidade:document.getElementById('inp_cidade').value, uf:document.getElementById('inp_uf').value, origem:document.getElementById('inp_origem').value})}).catch(()=>{});
         irParaEtapa(2);
     }
-
-    function prepararEtapa4() {
-        const empresa = document.getElementById('empresa_nome').value.trim() || "sua empresa";
-        const campos = ['faturamento', 'margem', 'custos_fixos', 'ticket_medio', 'leads_mes', 'taxa_conv'];
-        let vazios = 0;
-        campos.forEach(id => {
-            if (!document.getElementById(id).value.trim()) vazios++;
-        });
-        let cegasEstimadas = Math.max(2, vazios);
-
-        document.getElementById('teaser-resumo').innerHTML =
-            `✅ Encontramos <strong>${cegasEstimadas} pontos cegos</strong> e calculamos o faturamento exato para empatar as contas da <strong>${empresa}</strong>. Informe seu WhatsApp para liberar o laudo.`;
-
-        irParaEtapa(4);
-    }
-
+    function prepararEtapa4() { irParaEtapa(4); }
     function validarFinal() {
-        const sol = document.getElementById('solicitante').value.trim();
-        const cargo = document.getElementById('cargo').value.trim();
-        const wpp = document.getElementById('whatsapp').value.replace(/\D/g, '');
-        let ok = true;
-
-        if (!sol) {
-            document.getElementById('solicitante').classList.add('input-erro');
-            document.getElementById('err_solicitante').classList.add('visible');
-            ok = false;
-        } else {
-            document.getElementById('solicitante').classList.remove('input-erro');
-            document.getElementById('err_solicitante').classList.remove('visible');
-        }
-
-        if (!cargo) {
-            document.getElementById('cargo').classList.add('input-erro');
-            document.getElementById('err_cargo').classList.add('visible');
-            ok = false;
-        } else {
-            document.getElementById('cargo').classList.remove('input-erro');
-            document.getElementById('err_cargo').classList.remove('visible');
-        }
-
-        if (wpp.length < 10) {
-            document.getElementById('whatsapp').classList.add('input-erro');
-            document.getElementById('err_whatsapp').classList.add('visible');
-            ok = false;
-        } else {
-            document.getElementById('whatsapp').classList.remove('input-erro');
-            document.getElementById('err_whatsapp').classList.remove('visible');
-        }
-
-        return ok;
+        return document.getElementById('solicitante').value.trim() && document.getElementById('cargo').value && document.getElementById('whatsapp').value.replace(/\D/g,'').length >= 10;
     }
 </script>
 </body>
@@ -1494,69 +1274,46 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background: #F1F6F3; color: #0F172A; padding: 24px 14px 60px; }
         .wrap { max-width: 820px; margin: 0 auto; }
-
         .header-card { background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); color: #fff; border-radius: 20px; padding: 28px; margin-bottom: 18px; box-shadow: 0 12px 30px rgba(15,23,42,0.12); }
         .top-meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-        .tag-brand { background: rgba(0,200,83,0.18); color: #4ADE80; font-weight: 800; font-size: 12px; padding: 5px 12px; border-radius: 99px; letter-spacing: 0.4px; }
-        .btn-print { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 7px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+        .tag-brand { background: rgba(0,200,83,0.18); color: #4ADE80; font-weight: 800; font-size: 12px; padding: 5px 12px; border-radius: 99px; }
+        .btn-print { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 7px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; text-decoration: none; }
         .header-card h1 { font-size: 24px; font-weight: 800; margin-bottom: 6px; }
         .header-sub { font-size: 13.5px; color: #CBD5E1; line-height: 1.5; }
-
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
-        .kpi-card { background: #fff; border-radius: 16px; padding: 18px; border: 1px solid #E2E8F0; box-shadow: 0 4px 14px rgba(15,23,42,0.03); }
-        .kpi-card small { display: block; font-size: 12px; font-weight: 700; color: #64748B; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .kpi-card { background: #fff; border-radius: 16px; padding: 18px; border: 1px solid #E2E8F0; }
+        .kpi-card small { display: block; font-size: 12px; font-weight: 700; color: #64748B; margin-bottom: 6px; text-transform: uppercase; }
         .kpi-val { font-size: 21px; font-weight: 800; color: #0F172A; }
-        .kpi-val.green { color: #00A645; }
-        .kpi-val.red { color: #DC2626; }
-        .kpi-val.amber { color: #D97706; }
+        .kpi-val.green { color: #00A645; } .kpi-val.red { color: #DC2626; } .kpi-val.amber { color: #D97706; }
         .kpi-note { font-size: 11.5px; color: #64748B; margin-top: 5px; line-height: 1.35; }
-
-        /* Benchmark Setorial CNAE */
         .bench-card { background: #EFF6FF; border: 1.5px solid #BFDBFE; border-radius: 16px; padding: 18px 20px; margin-bottom: 18px; }
-        .bench-title { font-size: 13px; font-weight: 800; color: #1D4ED8; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+        .bench-title { font-size: 13px; font-weight: 800; color: #1D4ED8; text-transform: uppercase; margin-bottom: 6px; }
         .bench-text { font-size: 14px; color: #1E3A8A; line-height: 1.55; }
-
-        .section-card { background: #fff; border-radius: 18px; padding: 24px; border: 1px solid #E2E8F0; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(15,23,42,0.03); }
-        .section-title { font-size: 18px; font-weight: 800; color: #0F172A; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
-
+        .section-card { background: #fff; border-radius: 18px; padding: 24px; border: 1px solid #E2E8F0; margin-bottom: 18px; }
+        .section-title { font-size: 18px; font-weight: 800; color: #0F172A; margin-bottom: 14px; }
         .cega-item { border-left: 4px solid #EF4444; background: #FEF2F2; border-radius: 0 12px 12px 0; padding: 14px 16px; margin-bottom: 12px; }
-        .cega-item.alto { border-left-color: #F59E0B; background: #FFFBEB; }
-        .cega-item.medio { border-left-color: #3B82F6; background: #EFF6FF; }
-        .cega-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }
+        .cega-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .cega-head strong { font-size: 14.5px; color: #0F172A; }
         .sev-badge { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: #FEE2E2; color: #B91C1C; }
-        .cega-item.alto .sev-badge { background: #FEF3C7; color: #B45309; }
         .cega-desc { font-size: 13.5px; color: #334155; line-height: 1.5; }
-
-        /* Bloco de Oferta Sessão Estratégica (20 min) com Escassez Real */
         .offer-card { background: linear-gradient(135deg, #064E3B 0%, #0F172A 100%); color: #fff; border-radius: 20px; padding: 26px 24px; margin-bottom: 18px; border: 2px solid #00C853; box-shadow: 0 14px 32px rgba(0, 200, 83, 0.16); }
         .scarcity-pill { display: inline-block; background: #FEF08A; color: #854D0E; font-weight: 800; font-size: 12px; padding: 5px 12px; border-radius: 99px; margin-bottom: 12px; }
-        .offer-card h2 { font-size: 21px; font-weight: 800; margin-bottom: 8px; line-height: 1.3; }
+        .offer-card h2 { font-size: 21px; font-weight: 800; margin-bottom: 8px; }
         .offer-sub { font-size: 14px; color: #CBD5E1; margin-bottom: 16px; line-height: 1.5; }
         .deliverables { list-style: none; margin-bottom: 20px; }
-        .deliverables li { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 11px 14px; margin-bottom: 9px; font-size: 13.5px; color: #F8FAFC; line-height: 1.45; }
-
+        .deliverables li { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 11px 14px; margin-bottom: 9px; font-size: 13.5px; color: #F8FAFC; }
         .cta-dual { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
         @media (max-width: 640px) { .cta-dual { grid-template-columns: 1fr; } }
-
-        .btn-cta-main { display: flex; align-items: center; justify-content: center; text-align: center; background: #00C853; color: #fff; text-decoration: none; font-weight: 800; font-size: 15px; padding: 16px 18px; border-radius: 14px; box-shadow: 0 8px 22px rgba(0,200,83,0.35); transition: transform 0.15s, background 0.2s; }
-        .btn-cta-main:hover { background: #00A645; transform: translateY(-1px); }
-        .btn-cta-main.danger { background: #EF4444; box-shadow: 0 8px 22px rgba(239,68,68,0.35); }
-        .btn-cta-main.danger:hover { background: #DC2626; }
-
-        .btn-cta-agenda { display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1.5px solid rgba(255,255,255,0.35); text-decoration: none; font-weight: 700; font-size: 14px; padding: 15px 16px; border-radius: 14px; transition: background 0.2s; }
+        .btn-cta-main { display: flex; align-items: center; justify-content: center; text-align: center; background: #00C853; color: #fff; text-decoration: none; font-weight: 800; font-size: 15px; padding: 16px 18px; border-radius: 14px; box-shadow: 0 8px 22px rgba(0,200,83,0.35); }
+        .btn-cta-main:hover { background: #00A645; }
+        .btn-cta-main.danger { background: #EF4444; } .btn-cta-main.danger:hover { background: #DC2626; }
+        .btn-cta-agenda { display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1.5px solid rgba(255,255,255,0.35); text-decoration: none; font-weight: 700; font-size: 14px; padding: 15px 16px; border-radius: 14px; }
         .btn-cta-agenda:hover { background: rgba(255,255,255,0.2); }
-
         .plano-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
         .plano-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; }
         .plano-box small { display: block; font-size: 11.5px; color: #64748B; font-weight: 700; margin-bottom: 4px; }
         .plano-box strong { font-size: 18px; color: #0F172A; font-weight: 800; }
-
         .footer { text-align: center; font-size: 12px; color: #64748B; margin-top: 24px; line-height: 1.6; }
-        @media print {
-            body { background: #fff; padding: 0; }
-            .btn-print, .offer-card { display: none !important; }
-        }
     </style>
 </head>
 <body>
@@ -1564,7 +1321,7 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
     <div class="header-card">
         <div class="top-meta">
             <span class="tag-brand">📊 DOUTOR CAIXA • LAUDO EXECUTIVO</span>
-            <button class="btn-print" onclick="window.print()">🖨️ Salvar PDF / Imprimir</button>
+            <a href="/baixar_pdf/{{ lead.cnpj }}" class="btn-print">📄 Baixar PDF Executivo</a>
         </div>
         <h1>{{ lead.empresa }}</h1>
         <div class="header-sub">
@@ -1573,125 +1330,84 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- KPIs PRINCIPAIS -->
     <div class="kpi-grid">
         <div class="kpi-card">
             <small>Ponto de Equilíbrio</small>
-            <div class="kpi-val">
-                {% if diag.ponto_equilibrio %}{{ diag.ponto_equilibrio | moeda }}{% else %}Não calculável{% endif %}
-            </div>
-            <div class="kpi-note">
-                {% if diag.ponto_equilibrio %}
-                    Faturamento mínimo/mês para empatar as contas (margem {{ diag.margem_usada }}%{% if diag.margem_foi_estimada %} est.{% endif %}).
-                {% else %}
-                    Custos fixos não informados — impossível cravar o empate.
-                {% endif %}
-            </div>
+            <div class="kpi-val">{% if diag.ponto_equilibrio %}{{ diag.ponto_equilibrio | moeda }}{% else %}Não calculável{% endif %}</div>
+            <div class="kpi-note">Faturamento mínimo/mês para empatar as contas.</div>
         </div>
-
         <div class="kpi-card">
             <small>Resultado Operacional</small>
             <div class="kpi-val {% if diag.lucro_atual is not none %}{% if diag.lucro_atual < 0 %}red{% else %}green{% endif %}{% else %}amber{% endif %}">
                 {% if diag.lucro_atual is not none %}{{ diag.lucro_atual | moeda }}/mês{% else %}Ponto Cego{% endif %}
             </div>
-            <div class="kpi-note">
-                {% if diag.lucro_atual is not none %}
-                    {% if diag.lucro_atual < 0 %}Operação operando abaixo do ponto de equilíbrio.{% else %}Geração de caixa operacional estimada no mês.{% endif %}
-                {% else %}
-                    Faltam dados de faturamento ou custos fixos para medir o lucro real.
-                {% endif %}
-            </div>
+            <div class="kpi-note">Geração de caixa operacional estimada no mês.</div>
         </div>
-
         <div class="kpi-card">
             <small>Dinheiro na Mesa (Mês)</small>
             <div class="kpi-val amber">+{{ diag.potencial_oculto | moeda }}</div>
-            <div class="kpi-note">Ganho mensal estimado ao alinhar margem e conversão ao benchmark do setor.</div>
+            <div class="kpi-note">Ganho mensal estimado ao alinhar margem e conversão.</div>
         </div>
-
         <div class="kpi-card">
             <small>Pontos Cegos Detectados</small>
             <div class="kpi-val {% if diag.qtd_cegas >= 2 %}red{% else %}green{% endif %}">{{ diag.qtd_cegas }} alerta(s)</div>
-            <div class="kpi-note">Vulnerabilidades financeiras ou comerciais identificadas.</div>
+            <div class="kpi-note">Vulnerabilidades financeiras identificadas.</div>
         </div>
     </div>
 
-    <!-- BENCHMARK SETORIAL USANDO CNAE -->
     <div class="bench-card">
-        <div class="bench-title">📊 Benchmark Comparativo Setorial {% if lead.cnae %}— CNAE: {{ lead.cnae }}{% endif %}</div>
+        <div class="bench-title">📊 Benchmark Setorial {% if lead.cnae %}— CNAE: {{ lead.cnae }}{% endif %}</div>
         <div class="bench-text">
-            Empresas de alta performance no segmento <strong>{{ diag.bench.segmento }}</strong> operam com <strong>margem de contribuição acima de {{ diag.bench.margem_bench | int }}%</strong> e <strong>taxa de fechamento comercial de {{ diag.bench.conv_bench | int }}%</strong>.
-            {{ diag.bench.alerta }}
+            Empresas de alta performance no segmento <strong>{{ diag.bench.segmento }}</strong> operam com margem acima de <strong>{{ diag.bench.margem_bench | int }}%</strong> e fechamento de <strong>{{ diag.bench.conv_bench | int }}%</strong>. {{ diag.bench.alerta }}
         </div>
     </div>
 
-    <!-- RADAR DE PONTOS CEGOS -->
     <div class="section-card">
         <div class="section-title">🚨 Radar de Pontos Cegos & Riscos de Caixa</div>
-        {% if diag.pontos_cegos %}
-            {% for item in diag.pontos_cegos %}
-            <div class="cega-item {% if item.severidade == 'ALTO' %}alto{% elif item.severidade == 'MÉDIO' %}medio{% endif %}">
-                <div class="cega-head">
-                    <strong>{{ item.titulo }}</strong>
-                    <span class="sev-badge">{{ item.severidade }}</span>
-                </div>
-                <div class="cega-desc">{{ item.descricao }}</div>
+        {% for item in diag.pontos_cegos %}
+        <div class="cega-item">
+            <div class="cega-head">
+                <strong>{{ item.titulo }}</strong>
+                <span class="sev-badge">{{ item.severidade }}</span>
             </div>
-            {% endfor %}
-        {% else %}
-            <p style="font-size:14px; color:#334155;">Sua operação apresentou indicadores saudáveis dentro dos parâmetros informados. O próximo passo é escalar previsibilidade comercial.</p>
-        {% endif %}
+            <div class="cega-desc">{{ item.descricao }}</div>
+        </div>
+        {% endfor %}
     </div>
 
-    <!-- BLOCO DE OFERTA: SESSÃO ESTRATÉGICA (20 MIN) COM ESCASSEZ REAL -->
+    <!-- SESSÃO ESTRATÉGICA COM WHATSAPP DIRETO NO BOTÃO DE AGENDA -->
     <div class="offer-card">
-        <div class="scarcity-pill">⚠️ Limitado a 4 empresas por semana na Grande Recife ({{ vagas_restantes }} vagas restantes esta semana)</div>
+        <div class="scarcity-pill">⚠️ Limitado a 4 empresas por semana na Grande Recife ({{ vagas_restantes }} vagas restantes)</div>
         <h2>Sessão de Diagnóstico Comercial & Caixa (20 min — Gratuita)</h2>
-        <p class="offer-sub">
-            Não deixe esses números parados na tela. Vamos abrir o diagnóstico da <strong>{{ lead.empresa }}</strong> ao vivo com um especialista da MaqTrak para entregar 3 ações práticas:
-        </p>
+        <p class="offer-sub">Vamos abrir o diagnóstico da <strong>{{ lead.empresa }}</strong> ao vivo com um especialista da MaqTrak para entregar:</p>
         <ul class="deliverables">
-            <li><strong>1. Revisão da Margem & Ponto de Equilíbrio:</strong> ajuste fino de precificação e estancamento imediato de vazamentos de caixa.</li>
-            <li><strong>2. Ajuste do Funil Diário da Equipe:</strong> definição exata de metas de contatos/dia, visitas semanais e script de follow-up.</li>
+            <li><strong>1. Revisão da Margem & Ponto de Equilíbrio:</strong> estancamento imediato de vazamentos de caixa.</li>
+            <li><strong>2. Ajuste do Funil Diário:</strong> definição de metas de contatos/dia e visitas semanais.</li>
             <li><strong>3. Plano de Ação de 30 Dias:</strong> roteiro prático para capturar os <strong>{{ diag.potencial_oculto | moeda }}/mês</strong> deixados na mesa.</li>
         </ul>
-
         <div class="cta-dual">
             <a href="/cta-wpp/{{ lead.cnpj }}" target="_blank" class="btn-cta-main {% if diag.cta_cor == 'danger' %}danger{% endif %}">
                 {{ diag.cta_texto }}
             </a>
+            <!-- Botão de Agenda redirecionado para WhatsApp com mensagem pronta (Sem travar em mobile/Gmail) -->
             <a href="/cta-agenda/{{ lead.cnpj }}" target="_blank" class="btn-cta-agenda">
-                📅 Escolher Horário na Agenda (15 min)
+                💬 Agendar via WhatsApp (15 min)
             </a>
         </div>
     </div>
 
-    <!-- PLANO DE EXECUÇÃO COMERCIAL PARA BATER A META -->
     <div class="section-card">
         <div class="section-title">🎯 Engenharia de Metas para Bater {{ diag.meta_fat | moeda }}/mês</div>
         <div class="plano-grid">
-            <div class="plano-box">
-                <small>Vendas / Pedidos no Mês</small>
-                <strong>{{ diag.vendas_necessarias_mes | num }} fechamentos</strong>
-            </div>
-            <div class="plano-box">
-                <small>Oportunidades Qualificadas/Mês</small>
-                <strong>{{ diag.oportunidades_mes | num }} orçamentos</strong>
-            </div>
-            <div class="plano-box">
-                <small>Ritmo Diário por Vendedor</small>
-                <strong>{{ diag.contatos_dia_por_vendedor }} contatos/dia</strong>
-            </div>
-            <div class="plano-box">
-                <small>Cadência Semanal por Vendedor</small>
-                <strong>{{ diag.visitas_semana_por_vendedor }} visitas/reuniões</strong>
-            </div>
+            <div class="plano-box"><small>Vendas no Mês</small><strong>{{ diag.vendas_necessarias_mes | num }} fechamentos</strong></div>
+            <div class="plano-box"><small>Oportunidades/Mês</small><strong>{{ diag.oportunidades_mes | num }} orçamentos</strong></div>
+            <div class="plano-box"><small>Ritmo por Vendedor</small><strong>{{ diag.contatos_dia_por_vendedor }} contatos/dia</strong></div>
+            <div class="plano-box"><small>Cadência Semanal</small><strong>{{ diag.visitas_semana_por_vendedor }} visitas/reuniões</strong></div>
         </div>
     </div>
 
     <div class="footer">
-        Diagnóstico gerado em {{ lead.atualizado_em }} • <strong>Doutor Caixa</strong> — Uma solução <strong>MaqTrak</strong>.<br>
-        Dados tratados sob sigilo empresarial conforme a LGPD.
+        Diagnóstico gerado em {{ lead.atualizado_em }} • <strong>Doutor Caixa</strong> — Uma solução <strong>MaqTrak</strong>.
     </div>
 </div>
 </body>
@@ -1740,46 +1456,34 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background: #F1F5F9; color: #0F172A; padding: 20px 14px 60px; }
         .wrap { max-width: 1120px; margin: 0 auto; }
-
         .topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
         .topbar h1 { font-size: 22px; font-weight: 800; }
         .topbar-actions { display: flex; gap: 10px; }
         .btn-top { padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 700; text-decoration: none; background: #fff; color: #0F172A; border: 1px solid #CBD5E1; }
-
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
         .stat-card { background: #fff; border-radius: 14px; padding: 16px; border: 1px solid #E2E8F0; }
         .stat-card small { font-size: 11.5px; color: #64748B; font-weight: 700; text-transform: uppercase; }
         .stat-card strong { display: block; font-size: 24px; font-weight: 800; margin-top: 4px; }
-
         .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
         .filter-btn { padding: 8px 13px; border-radius: 99px; border: 1px solid #CBD5E1; background: #fff; font-size: 12.5px; font-weight: 700; cursor: pointer; color: #334155; }
         .filter-btn.active { background: #0F172A; color: #fff; border-color: #0F172A; }
         .search-inp { margin-left: auto; padding: 8px 14px; border-radius: 10px; border: 1px solid #CBD5E1; font-size: 13px; min-width: 240px; }
-
         .lead-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
-        .lead-card { background: #fff; border-radius: 16px; padding: 18px; border: 1px solid #E2E8F0; box-shadow: 0 2px 10px rgba(15,23,42,0.03); display: flex; flex-direction: column; justify-content: space-between; }
+        .lead-card { background: #fff; border-radius: 16px; padding: 18px; border: 1px solid #E2E8F0; display: flex; flex-direction: column; justify-content: space-between; }
         .lead-card.incompleto { border-left: 5px solid #F59E0B; background: #FFFDF7; }
         .lead-card.quente { border-left: 5px solid #EF4444; }
-
         .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
         .badge { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; }
-        .b-inc { background: #FEF3C7; color: #B45309; }
-        .b-comp { background: #DCFCE7; color: #15803D; }
-        .b-hot { background: #FEE2E2; color: #B91C1C; }
-
+        .b-inc { background: #FEF3C7; color: #B45309; } .b-comp { background: #DCFCE7; color: #15803D; } .b-hot { background: #FEE2E2; color: #B91C1C; }
         .lead-title { font-size: 16px; font-weight: 800; color: #0F172A; margin-bottom: 3px; }
         .lead-meta { font-size: 12.5px; color: #64748B; margin-bottom: 12px; line-height: 1.45; }
         .lead-nums { background: #F8FAFC; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; margin-bottom: 12px; line-height: 1.55; }
-
         .crm-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
         .crm-select { flex: 1; padding: 8px 10px; border-radius: 9px; border: 1.5px solid #CBD5E1; font-size: 12.5px; font-weight: 700; background: #fff; }
         .save-ok { font-size: 11.5px; font-weight: 700; color: #00A645; opacity: 0; transition: opacity 0.2s; }
-
         .card-actions { display: flex; gap: 8px; }
         .btn-act { flex: 1; text-align: center; padding: 9px 10px; border-radius: 9px; font-size: 12.5px; font-weight: 700; text-decoration: none; }
-        .btn-wpp { background: #00C853; color: #fff; }
-        .btn-laudo { background: #0F172A; color: #fff; }
-        .btn-google { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+        .btn-wpp { background: #00C853; color: #fff; } .btn-laudo { background: #0F172A; color: #fff; } .btn-google { background: #EFF6FF; color: #1D4ED8; }
     </style>
 </head>
 <body>
@@ -1791,62 +1495,33 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
             <a href="/painel/sair" class="btn-top">Sair</a>
         </div>
     </div>
-
     <div class="stats-grid">
-        <div class="stat-card"><small>Total Capturados</small><strong>{{ stats.total }}</strong></div>
-        <div class="stat-card"><small>Laudos Completos</small><strong style="color:#00A645;">{{ stats.completos }}</strong></div>
-        <div class="stat-card"><small>Leads Incompletos</small><strong style="color:#D97706;">{{ stats.incompletos }}</strong></div>
+        <div class="stat-card"><small>Total</small><strong>{{ stats.total }}</strong></div>
+        <div class="stat-card"><small>Completos</small><strong style="color:#00A645;">{{ stats.completos }}</strong></div>
+        <div class="stat-card"><small>Incompletos</small><strong style="color:#D97706;">{{ stats.incompletos }}</strong></div>
         <div class="stat-card"><small>Cliques no CTA 🔥</small><strong style="color:#DC2626;">{{ stats.cliques_cta }}</strong></div>
-        <div class="stat-card"><small>Reuniões Agendadas</small><strong style="color:#2563EB;">{{ stats.reunioes }}</strong></div>
+        <div class="stat-card"><small>Reuniões</small><strong style="color:#2563EB;">{{ stats.reunioes }}</strong></div>
     </div>
-
     <div class="filters">
-        <button class="filter-btn active" onclick="filtrar('TODOS', this)">Todos ({{ stats.total }})</button>
-        <button class="filter-btn" onclick="filtrar('Lead Incompleto', this)">⚠️ Incompletos ({{ stats.incompletos }})</button>
-        <button class="filter-btn" onclick="filtrar('Novo', this)">Novos</button>
-        <button class="filter-btn" onclick="filtrar('Contatado', this)">Contatados</button>
+        <button class="filter-btn active" onclick="filtrar('TODOS', this)">Todos</button>
+        <button class="filter-btn" onclick="filtrar('Lead Incompleto', this)">Incompletos</button>
         <button class="filter-btn" onclick="filtrar('Reunião Agendada', this)">Reunião Agendada</button>
-        <button class="filter-btn" onclick="filtrar('Proposta Enviada', this)">Proposta Enviada</button>
-        <button class="filter-btn" onclick="filtrar('Fechado', this)">Fechados</button>
-        <input type="text" class="search-inp" id="busca" placeholder="Buscar empresa, CNPJ ou cidade..." onkeyup="buscarTexto()">
+        <input type="text" class="search-inp" id="busca" placeholder="Buscar..." onkeyup="buscarTexto()">
     </div>
-
-    <div class="lead-grid" id="lead-grid">
+    <div class="lead-grid">
         {% for l in leads %}
-        <div class="lead-card {% if not l.completo %}incompleto{% elif l.clicou_cta %}quente{% endif %}"
-             data-status="{{ l.status_crm }}"
-             data-search="{{ (l.empresa ~ ' ' ~ l.cnpj ~ ' ' ~ (l.cidade or '') ~ ' ' ~ (l.solicitante or '')) | lower }}">
+        <div class="lead-card {% if not l.completo %}incompleto{% elif l.clicou_cta %}quente{% endif %}" data-status="{{ l.status_crm }}" data-search="{{ (l.empresa ~ ' ' ~ l.cnpj) | lower }}">
             <div>
                 <div class="badges">
-                    {% if l.completo %}
-                        <span class="badge b-comp">✅ Completo</span>
-                    {% else %}
-                        <span class="badge b-inc">⏳ Lead Incompleto (Abandonou Etapa 2+)</span>
-                    {% endif %}
-                    {% if l.clicou_cta %}
-                        <span class="badge b-hot">🔥 Clicou no CTA ({{ l.data_cta or 'Hoje' }})</span>
-                    {% endif %}
+                    {% if l.completo %}<span class="badge b-comp">✅ Completo</span>{% else %}<span class="badge b-inc">⏳ Incompleto</span>{% endif %}
+                    {% if l.clicou_cta %}<span class="badge b-hot">🔥 Clicou CTA</span>{% endif %}
                 </div>
-
                 <div class="lead-title">{{ l.empresa }}</div>
-                <div class="lead-meta">
-                    CNPJ: {{ l.cnpj | cnpj_fmt }} {% if l.cidade %}• {{ l.cidade }}/{{ l.uf }}{% endif %}<br>
-                    {% if l.cnae %}CNAE: {{ l.cnae[:65] }}...<br>{% endif %}
-                    {% if l.solicitante %}
-                        👤 <strong>{{ l.solicitante }}</strong> ({{ l.cargo }}) • 📱 {{ l.whatsapp }}
-                    {% else %}
-                        <em>Contato ainda não preenchido (abandono na etapa financeira)</em>
-                    {% endif %}
-                </div>
-
+                <div class="lead-meta">CNPJ: {{ l.cnpj | cnpj_fmt }}<br>👤 {{ l.solicitante or 'Aguardando' }} • 📱 {{ l.whatsapp or '-' }}</div>
                 {% if l.completo %}
-                <div class="lead-nums">
-                    💵 Fat: <strong>{{ l.faturamento | moeda }}</strong> | Margem: <strong>{% if l.margem %}{{ l.margem }}%{% else %}Não informou{% endif %}</strong><br>
-                    🚨 Pontos Cegos: <strong>{{ l.qtd_cegas }}</strong> | Potencial: <strong style="color:#00A645;">{{ l.potencial_oculto | moeda }}/mês</strong>
-                </div>
+                <div class="lead-nums">Fat: {{ l.faturamento | moeda }} | Potencial: <strong style="color:#00A645;">{{ l.potencial_oculto | moeda }}</strong></div>
                 {% endif %}
             </div>
-
             <div>
                 <div class="crm-row">
                     <select class="crm-select" onchange="atualizarStatus('{{ l.cnpj }}', this)">
@@ -1856,15 +1531,13 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
                     </select>
                     <span class="save-ok" id="ok-{{ l.cnpj }}">Salvo ✓</span>
                 </div>
-
                 <div class="card-actions">
                     {% if l.whatsapp %}
                         {% set wpp_num = l.whatsapp | replace('(', '') | replace(')', '') | replace('-', '') | replace(' ', '') %}
-                        {% set msg_abordagem = "Olá " ~ l.solicitante ~ "! Tudo bem? Aqui é o Rodrigo da MaqTrak / Doutor Caixa. Vi o diagnóstico da " ~ l.empresa ~ " e identifiquei " ~ (l.qtd_cegas or 0) ~ " pontos importantes no caixa/comercial. Podemos falar 5 minutos?" %}
-                        <a href="https://wa.me/55{{ wpp_num }}?text={{ msg_abordagem | urlencode }}" target="_blank" class="btn-act btn-wpp">💬 Chamar Lead</a>
-                        <a href="/laudo/{{ l.cnpj }}" target="_blank" class="btn-act btn-laudo">📄 Ver Laudo</a>
+                        <a href="https://wa.me/55{{ wpp_num }}?text=Olá!" target="_blank" class="btn-act btn-wpp">💬 Chamar</a>
+                        <a href="/laudo/{{ l.cnpj }}" target="_blank" class="btn-act btn-laudo">📄 Laudo</a>
                     {% else %}
-                        <a href="https://www.google.com/search?q={{ (l.empresa ~ ' ' ~ (l.cidade or '') ~ ' telefone whatsapp') | urlencode }}" target="_blank" class="btn-act btn-google">🔍 Buscar Contato no Google</a>
+                        <a href="https://www.google.com/search?q={{ l.empresa | urlencode }}" target="_blank" class="btn-act btn-google">🔍 Google</a>
                     {% endif %}
                 </div>
             </div>
@@ -1872,55 +1545,23 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
         {% endfor %}
     </div>
 </div>
-
 <script>
-    let filtroAtual = 'TODOS';
-
-    function filtrar(status, btn) {
-        filtroAtual = status;
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        aplicarFiltros();
+    function filtrar(st, btn) {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
+        document.querySelectorAll('.lead-card').forEach(c => c.style.display = (st === 'TODOS' || c.getAttribute('data-status') === st) ? 'flex' : 'none');
     }
-
     function buscarTexto() {
-        aplicarFiltros();
+        let t = document.getElementById('busca').value.toLowerCase();
+        document.querySelectorAll('.lead-card').forEach(c => c.style.display = c.getAttribute('data-search').includes(t) ? 'flex' : 'none');
     }
-
-    function aplicarFiltros() {
-        const termo = document.getElementById('busca').value.toLowerCase().trim();
-        document.querySelectorAll('.lead-card').forEach(card => {
-            const st = card.getAttribute('data-status');
-            const txt = card.getAttribute('data-search');
-            const matchStatus = (filtroAtual === 'TODOS' || st === filtroAtual);
-            const matchTexto = (!termo || txt.includes(termo));
-            card.style.display = (matchStatus && matchTexto) ? 'flex' : 'none';
-        });
-    }
-
-    async function atualizarStatus(cnpj, selectEl) {
-        const novoStatus = selectEl.value;
-        const card = selectEl.closest('.lead-card');
-        card.setAttribute('data-status', novoStatus);
-
-        try {
-            const resp = await fetch('/api/lead-status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cnpj: cnpj, status: novoStatus })
-            });
-            if (resp.ok) {
-                const okEl = document.getElementById(`ok-${cnpj}`);
-                okEl.style.opacity = '1';
-                setTimeout(() => { okEl.style.opacity = '0'; }, 1800);
-            }
-        } catch (e) {}
+    async function atualizarStatus(cnpj, sel) {
+        await fetch('/api/lead-status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cnpj: cnpj, status: sel.value})});
+        let ok = document.getElementById(`ok-${cnpj}`); ok.style.opacity = '1'; setTimeout(() => ok.style.opacity = '0', 1500);
     }
 </script>
 </body>
 </html>
 """
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
