@@ -5,7 +5,8 @@ import threading
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, make_response, jsonify
+from flask import Flask, render_template_string, request, redirect, url_for, make_response, jsonify, send_file
+import io
 from fpdf import FPDF
 
 app = Flask(__name__)
@@ -364,7 +365,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.1)",
+        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.2)",
         "Accept": "application/json"
     }
 
@@ -557,7 +558,6 @@ def cta_agenda(cnpj):
         cur.execute("UPDATE leads SET clicou_cta = 1, data_cta = ?, atualizado_em = ? WHERE cnpj = ?", (ts, ts, cnpj_limpo))
         conn.commit()
 
-        diag = json.loads(lead["diagnostico_json"] or "{}")
         if lead.get("empresa"):
             wpp_msg = f"Olá! Sou {lead['solicitante']} da *{lead['empresa']}*. Quero agendar nossa Sessão Estratégica de 20 min."
 
@@ -769,7 +769,6 @@ def baixar_pdf(cnpj):
 
     class PDF(FPDF):
         def header(self):
-            # Logo oficial restaurada
             try:
                 self.image('static/logo.png', 12, 9, 30)
             except Exception:
@@ -801,7 +800,6 @@ def baixar_pdf(cnpj):
     def pdf_safe(texto):
         return str(texto or "").encode("latin-1", "ignore").decode("latin-1")
 
-    # 1. Bloco de Dados do Cliente com Alta Legibilidade (Texto Preto Puro)
     pdf.set_fill_color(247, 250, 248)
     pdf.rect(12, pdf.get_y(), 186, 22, 'F')
     pdf.set_fill_color(0, 200, 83)
@@ -809,7 +807,7 @@ def baixar_pdf(cnpj):
 
     pdf.set_xy(18, pdf.get_y() + 3)
     pdf.set_font('helvetica', 'B', 10)
-    pdf.set_text_color(0, 0, 0)  # Preto puro para máxima leitura
+    pdf.set_text_color(0, 0, 0)
     loc_pdf = f" ({dados['cidade']}/{dados['uf']})" if dados.get('cidade') and dados.get('uf') else ""
     pdf.cell(175, 5, pdf_safe(f"EMPRESA: {dados['empresa']}{loc_pdf} | CNPJ: {formatar_cnpj(cnpj_limpo)}"), ln=1)
     pdf.set_x(18)
@@ -822,7 +820,6 @@ def baixar_pdf(cnpj):
     pdf.cell(175, 4.5, pdf_safe(f"Faturamento: {fmt_moeda(dados.get('faturamento'))} | Pontos Cegos: {diag.get('qtd_cegas', 0)}"), ln=1)
     pdf.ln(8)
 
-    # 2. Ponto de Equilíbrio & Lucro
     y = pdf.get_y()
     pdf.set_fill_color(235, 245, 251)
     pdf.rect(12, y, 186, 24, 'F')
@@ -844,7 +841,6 @@ def baixar_pdf(cnpj):
     pdf.cell(175, 4.5, pdf_safe(f"Potencial Oculto Mensal (Dinheiro na Mesa): {fmt_moeda(diag.get('potencial_oculto'))}"), ln=1)
     pdf.ln(10)
 
-    # 3. Radar de Pontos Cegos
     pdf.set_font('helvetica', 'B', 11)
     pdf.set_text_color(15, 23, 42)
     pdf.cell(186, 6, "PRINCIPAIS PONTOS CEGOS DE GESTÃO", ln=1)
@@ -868,7 +864,6 @@ def baixar_pdf(cnpj):
         pdf.cell(175, 4.5, pdf_safe(item.get('descricao', '')), ln=1)
         pdf.ln(4)
 
-    # 4. QR Code e Chamada para Ação Restaurados no Rodapé do PDF
     if pdf.get_y() > 210:
         pdf.add_page()
 
@@ -904,7 +899,6 @@ def baixar_pdf(cnpj):
     pdf.set_text_color(255, 255, 255)
     pdf.cell(80, 5, pdf_safe(f"WhatsApp: {WHATSAPP_CONSULTOR}"), link=link_wpp_pdf)
 
-    # QR Code do WhatsApp
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(152, y_cta + 4, 34, 34, 'F')
     try:
@@ -969,7 +963,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (LAUDO COM WHATSAPP DIRETO NO BOTÃO DE AGENDA)
+# TEMPLATES HTML
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -987,8 +981,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .brand { display: flex; align-items: center; gap: 10px; }
         .brand-icon { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #00D65B, #00A645); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 20px; box-shadow: 0 4px 12px rgba(0,200,83,0.28); }
-        .brand-name { font-weight: 800; font-size: 14px; line-height: 1.1; color: #00A645; letter-spacing: 0.4px; }
-        .brand-name span { display: block; font-size: 11px; color: var(--muted); font-weight: 600; }
         .btn-sair { font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 600; }
 
         .progress-header { display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; color: var(--primary-dark); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase; }
@@ -1001,7 +993,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 
         h1 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
         .subtitle { font-size: 14px; color: var(--muted); line-height: 1.5; margin-bottom: 20px; }
-        .info-banner { background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 12px; padding: 12px 14px; font-size: 12.5px; color: #166534; line-height: 1.45; margin-bottom: 18px; }
 
         .field { margin-bottom: 16px; }
         label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: #1E293B; margin-bottom: 6px; }
@@ -1011,7 +1002,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         input, select { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; color: var(--text); background: #fff; outline: none; }
         input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.14); }
         input.input-erro { border-color: var(--danger); background: #FEF2F2; }
-        .field-help { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
         .status-cnpj { font-size: 12.5px; font-weight: 600; margin-top: 6px; min-height: 18px; }
         .err-msg { font-size: 12px; color: var(--danger); font-weight: 600; margin-top: 4px; display: none; }
         .err-msg.visible { display: block; }
@@ -1035,7 +1025,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         .btn-primary { flex: 1; background: var(--primary); color: #fff; border: none; border-radius: 12px; padding: 15px 18px; font-size: 15.5px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 200, 83, 0.25); }
         .btn-primary:hover { background: var(--primary-dark); }
         .btn-back { background: #F1F5F9; color: #475569; border: none; border-radius: 12px; padding: 15px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
-
         .footer-lgpd { margin-top: 22px; padding-top: 16px; border-top: 1px solid #EEF2F0; text-align: center; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
         .footer-lgpd .box-lgpd { background: #F8FAFC; border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
     </style>
@@ -1044,8 +1033,8 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <div class="container">
     <div class="topbar">
         <div class="brand">
-            <div class="brand-icon">📊</div>
-            <div class="brand-name">DOUTOR<br>CAIXA</div>
+            <img src="/static/logo.png" alt="Doutor Caixa" style="height: 38px; width: auto; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+            <div class="brand-icon" style="display:none;">📊</div>
         </div>
         <a href="/" class="btn-sair">✕ Sair</a>
     </div>
@@ -1064,7 +1053,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         <input type="hidden" name="cnae" id="inp_cnae">
         <input type="hidden" name="origem" id="inp_origem" value="{{ origem }}">
 
-        <!-- ETAPA 1 -->
         <div class="step active" id="step-1">
             <h1>1. Dados da Empresa</h1>
             <p class="subtitle">Digite o CNPJ para localizarmos sua empresa automaticamente.</p>
@@ -1097,7 +1085,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- ETAPA 2 -->
         <div class="step" id="step-2">
             <h1>2. Raio-X Financeiro</h1>
             <p class="subtitle">Preencha o que você souber agora. Campos em branco viram pontos de melhoria no laudo.</p>
@@ -1129,7 +1116,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- ETAPA 3 -->
         <div class="step" id="step-3">
             <h1>3. Motor Comercial & Metas</h1>
             <p class="subtitle">Cruzamento de oportunidades e capacidade da equipe.</p>
@@ -1144,7 +1130,6 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- ETAPA 4 -->
         <div class="step" id="step-4">
             <h1>4. Liberar Laudo Completo</h1>
             <p class="subtitle">Diagnóstico pronto. Preencha seus dados para desbloquear.</p>
@@ -1375,7 +1360,6 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
         {% endfor %}
     </div>
 
-    <!-- SESSÃO ESTRATÉGICA COM WHATSAPP DIRETO NO BOTÃO DE AGENDA -->
     <div class="offer-card">
         <div class="scarcity-pill">⚠️ Limitado a 4 empresas por semana na Grande Recife ({{ vagas_restantes }} vagas restantes)</div>
         <h2>Sessão de Diagnóstico Comercial & Caixa (20 min — Gratuita)</h2>
@@ -1389,7 +1373,6 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
             <a href="/cta-wpp/{{ lead.cnpj }}" target="_blank" class="btn-cta-main {% if diag.cta_cor == 'danger' %}danger{% endif %}">
                 {{ diag.cta_texto }}
             </a>
-            <!-- Botão de Agenda redirecionado para WhatsApp com mensagem pronta (Sem travar em mobile/Gmail) -->
             <a href="/cta-agenda/{{ lead.cnpj }}" target="_blank" class="btn-cta-agenda">
                 💬 Agendar via WhatsApp (15 min)
             </a>
