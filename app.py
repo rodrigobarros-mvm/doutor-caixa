@@ -365,7 +365,7 @@ def api_consultar_cnpj(cnpj):
         return jsonify({"ok": False, "erro": "CNPJ inválido"}), 400
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.3)",
+        "User-Agent": "Mozilla/5.0 (compatible; DoutorCaixa/7.4)",
         "Accept": "application/json"
     }
 
@@ -963,7 +963,7 @@ def painel_sair():
 
 
 # ==============================================================================
-# TEMPLATES HTML (LOGO AMPLIADA E CENTRALIZADA)
+# TEMPLATES HTML (LOGO COM MAIS DESTAQUE E FAVICON ADICIONADO)
 # ==============================================================================
 TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -971,6 +971,7 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doutor Caixa — Diagnóstico Financeiro e Comercial</title>
+    <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -979,10 +980,10 @@ TEMPLATE_DIAGNOSTICO = """<!DOCTYPE html>
         body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
         .container { width: 100%; max-width: 540px; background: var(--card); border-radius: 20px; padding: 28px 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.06); border: 1px solid #E6EDE9; }
         
-        /* Topbar Centralizada com Logo em Destaque */
-        .topbar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 22px; }
+        /* Topbar com Logo Ampliada e de Alto Destaque */
+        .topbar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 24px; }
         .brand-center { grid-column: 2; display: flex; justify-content: center; align-items: center; }
-        .brand-center img { height: 56px; width: auto; object-fit: contain; }
+        .brand-center img { height: 76px; width: auto; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(0,200,83,0.15)); }
         .btn-sair { grid-column: 3; justify-self: end; font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 600; }
 
         .progress-header { display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; color: var(--primary-dark); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase; }
@@ -1255,6 +1256,7 @@ TEMPLATE_LAUDO = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Laudo Executivo — {{ lead.empresa }} | Doutor Caixa</title>
+    <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -1406,6 +1408,7 @@ TEMPLATE_LOGIN_PAINEL = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Acesso Restrito — Painel Doutor Caixa</title>
+    <link rel="icon" href="/static/logo.png" type="image/png">
     <style>
         * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
         body { background: #0F172A; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
@@ -1436,6 +1439,7 @@ TEMPLATE_PAINEL = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRM & Leads — Doutor Caixa</title>
+    <link rel="icon" href="/static/logo.png" type="image/png">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
